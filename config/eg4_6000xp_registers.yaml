@@ -1,0 +1,174 @@
+# EG4 6000XP register map -- THIS INVERTER MODEL ONLY.
+#
+# Do not reuse for another EG4 model without re-verifying. Addresses and
+# scale factors differ across the line, and several scales here were
+# corrected against live readings after the upstream source had them wrong
+# (see the per-register notes below).
+#
+# This file covers the inverter only. The battery maps are NOT here -- they
+# need u32 spans, packed sub-byte fields, checksummed frames and
+# variable-length payloads that a flat register table can't express, so they
+# live in code:
+#     Eco-Worthy Cubix (JBD)  ->  app/jbd.py     decode_basic/decode_cells
+#     EG4 LL-S (Modbus)       ->  app/eg4ll.py   decode_block
+#
+# Derived from adamksmith/ESPHome-Projects Patched-Parent-Inverter.yaml.
+# addresses are 0-based input ("read") registers unless noted.
+#
+# type: u16 | s16 | u32 | s32   (u32/s32 = two consecutive regs, low word first)
+# scale: multiplier applied to raw value
+# UNVERIFIED entries are marked; check against SA before trusting.
+
+input:
+  # --- PV ---
+  - {addr: 1,   key: pv1_voltage,        type: u16, scale: 0.1,  unit: V}
+  - {addr: 2,   key: pv2_voltage,        type: u16, scale: 0.1,  unit: V}
+  - {addr: 7,   key: pv1_power,          type: u16, scale: 1,    unit: W}
+  - {addr: 8,   key: pv2_power,          type: u16, scale: 1,    unit: W}
+  - {addr: 28,  key: pv1_today_kwh,      type: u16, scale: 0.1,  unit: kWh}
+  - {addr: 29,  key: pv2_today_kwh,      type: u16, scale: 0.1,  unit: kWh}
+
+  # --- Battery (inverter-side measurement) ---
+  - {addr: 4,   key: battery_voltage,    type: u16, scale: 0.1,  unit: V}
+  # Register 5 packs SOC (low byte) and SOH (high byte). Observed raw 0x6464.
+  - {addr: 5,   key: battery_soc,        type: u16, scale: 1,    unit: pct, bitmask: 0x00FF}
+  - {addr: 5,   key: battery_soh,        type: u16, scale: 1,    unit: pct, shift: 8, bitmask: 0x00FF}
+  - {addr: 10,  key: battery_charge_w,   type: u16, scale: 1,    unit: W}
+  - {addr: 11,  key: battery_discharge_w, type: u16, scale: 1,   unit: W}
+  - {addr: 33,  key: battery_in_today_kwh,  type: u16, scale: 0.1, unit: kWh}
+  - {addr: 34,  key: battery_out_today_kwh, type: u16, scale: 0.1, unit: kWh}
+
+  # --- Battery (BMS-relayed; goes stale/zero in open loop) ---
+  # x0.1 consistent with the rest of this block. Raw 1000 -> 100.0 A on 82,
+  # matching the Cubix's 100 A BMS rating. (The 125 A breaker is the OCPD you
+  # installed, not the BMS limit -- different number.)
+  - {addr: 81,  key: bms_max_charge_current,    type: u16, scale: 0.1,  unit: A}
+  - {addr: 82,  key: bms_max_discharge_current, type: u16, scale: 0.1,  unit: A}
+  - {addr: 96,  key: bms_packs_parallel,        type: u16, scale: 1,    unit: count}
+  - {addr: 97,  key: bms_capacity,              type: u16, scale: 1,    unit: Ah}
+  # Scale VERIFIED 0.1 against the Eco-Worthy app: raw -190 -> -19.0 A while
+  # the app read 19.53 A discharge. Note the upstream ESPHome config uses
+  # multiply: 0.01 for this register -- either model-dependent or an upstream
+  # error. Negative = discharge. Reports the comms-master pack ONLY, not the bank.
+  - {addr: 98,  key: bms_battery_current,       type: s16, scale: 0.1,  unit: A}
+  # VERIFIED: raw 286 -> 28.6 C == 83.4 F, matching the pack reading.
+  - {addr: 103, key: bms_cell_temp_max,         type: u16, scale: 0.1,  unit: C}
+  - {addr: 104, key: bms_cell_temp_min,         type: u16, scale: 0.1,  unit: C}
+
+  # --- Grid ---
+  - {addr: 12,  key: grid_voltage,        type: u16, scale: 0.1,  unit: V}
+  - {addr: 15,  key: grid_frequency,      type: u16, scale: 0.01, unit: Hz}
+  - {addr: 27,  key: grid_power,          type: u16, scale: 1,    unit: W}
+  - {addr: 17,  key: ac_charge_power,     type: u16, scale: 1,    unit: W}
+  - {addr: 37,  key: grid_today_kwh,      type: u16, scale: 0.1,  unit: kWh}
+
+  # --- EPS / load ---
+  - {addr: 20,  key: eps_voltage,         type: u16, scale: 0.1,  unit: V}
+  - {addr: 23,  key: eps_frequency,       type: u16, scale: 0.01, unit: Hz}
+  - {addr: 24,  key: eps_power,           type: u16, scale: 1,    unit: W}
+  - {addr: 127, key: eps_l1_voltage,      type: u16, scale: 0.1,  unit: V}
+  - {addr: 128, key: eps_l2_voltage,      type: u16, scale: 0.1,  unit: V}
+  - {addr: 129, key: eps_l1_power,        type: u16, scale: 1,    unit: W}
+  - {addr: 130, key: eps_l2_power,        type: u16, scale: 1,    unit: W}
+
+  # --- Temps ---
+  - {addr: 65,  key: temp_inverter_1,     type: u16, scale: 1,    unit: C}
+  - {addr: 66,  key: temp_inverter_2,     type: u16, scale: 1,    unit: C}
+  - {addr: 67,  key: temp_battery,        type: u16, scale: 1,    unit: C}
+
+  # --- Status ---
+  - {addr: 0,   key: state_raw,           type: u16, scale: 1,    unit: raw}
+  - {addr: 60,  key: fault_code,          type: u32, scale: 1,    unit: raw}
+  - {addr: 62,  key: warning_code,        type: u32, scale: 1,    unit: raw}
+
+  # NOTE: addr 153 appears as both "AC Couple Power" (input) and
+  # "AC First Priority End 1" (holding) in the source config. Different
+  # register spaces, so not a conflict -- but flagged as UNVERIFIED.
+  - {addr: 153, key: ac_couple_power,     type: u16, scale: 1,    unit: W, verified: false}
+
+# Holding registers.
+#
+# `setting:` is the number on the inverter's own LCD menu (manual v1.1.7,
+# section 11). The settings page orders by it so the UI matches the panel --
+# if a value looks wrong on screen, you know which menu to check.
+#
+# WRITES: a register is writable ONLY if it carries `writable: true` AND a
+# min/max. Anything without both is read-only, whatever the command asks for.
+# The poller validates against this file, not against the caller.
+#
+# `min`/`max` are hard limits enforced before the write reaches the bus. They
+# are deliberately tighter than what the inverter itself would accept -- the
+# inverter will happily take a discharge floor of 10%, but nothing here should
+# be able to set that by accident.
+#
+# Addresses are confirmed correct for READING (values match the inverter LCD
+# and Solar Assistant). Modbus convention says FC6 writes the same holding
+# register FC3 reads, but that is convention, not proof. Every write is
+# read back and verified, and the first write to any new register should be
+# checked against the LCD.
+holding:
+  # --- Inverter clock (LCD setting 1) ---
+  # Three registers, each packing two bytes:
+  #   12 = (month  << 8) | year_last_two
+  #   13 = (hour   << 8) | day
+  #   14 = (second << 8) | minute
+  # HOLDING, not input -- the ESPHome reference writes these with
+  # create_write_single_command (FC6), which only addresses holding registers.
+  # Note input register 12 is grid_voltage: the two spaces are independent,
+  # and the same number means different things in each.
+  # Read raw and assembled in _envelope(); written only via the sync_time
+  # command, never as individual writable fields.
+  - {addr: 12,  key: clk_month_year,  type: u16, scale: 1, unit: raw, setting: 1}
+  - {addr: 13,  key: clk_hour_day,    type: u16, scale: 1, unit: raw, setting: 1}
+  - {addr: 14,  key: clk_sec_min,     type: u16, scale: 1, unit: raw, setting: 1}
+
+  # Charge current limit. FOUND AT 101, not 67 -- register 67 read 0 while
+  # the LCD showed a real value, and a differential scan located the right
+  # one. Units are AMPS, not percent, which the old key name got wrong too.
+  #
+  # The LCD only steps this in 10 A increments. Whether that is a panel
+  # restriction or the register quantising is unresolved: write a value like
+  # 87 and the read-back will say. A quantising register reports a mismatch
+  # rather than failing, which is exactly the case read-back verification
+  # exists to catch.
+  - {addr: 101, key: set_charge_current_limit, type: u16, scale: 1, unit: A, min: 0, max: 125, writable: true, setting: 6}
+  # End-of-discharge floor. The lower bound is 15, not the inverter's own 10:
+  # at 15% of a 200 Ah bank there is still ~1.5 kWh of reserve, and a typo
+  # that sets 1 instead of 10 must not be reachable.
+  - {addr: 105, key: set_eod_pct,              type: u16, scale: 1, unit: pct, min: 15, max: 90, writable: true, setting: 12}
+  - {addr: 160, key: set_ac_charge_start_soc,  type: u16, scale: 1, unit: pct, min: 5,  max: 95, writable: true, setting: 14}
+  - {addr: 161, key: set_ac_charge_stop_soc,   type: u16, scale: 1, unit: pct, min: 20, max: 100, writable: true, setting: 14}
+  # 125 A is the inverter's ceiling. The BMS also caps this over CAN, so a
+  # high value here is requested, not guaranteed.
+  - {addr: 168, key: set_ac_charge_current,    type: u16, scale: 1, unit: A,   min: 0,  max: 125, writable: true, setting: 6}
+  - {addr: 196, key: set_gen_start_soc,        type: u16, scale: 1, unit: pct, min: 5,  max: 95, writable: true, setting: 25}
+  - {addr: 197, key: set_gen_stop_soc,         type: u16, scale: 1, unit: pct, min: 20, max: 100, writable: true, setting: 25}
+  # Time windows are packed BCD-ish (hour in low byte, minute in high byte).
+  # Decoded in code; verify against the inverter LCD before trusting.
+  # Writable: the decoded values match the LCD schedule exactly, which is
+  # good evidence the packing is right. Still, change one window first and
+  # confirm on the panel before trusting the rest.
+  - {addr: 68,  key: set_ac_charge_start_1, type: time, writable: true, setting: 14}
+  - {addr: 69,  key: set_ac_charge_end_1,   type: time, writable: true, setting: 14}
+  - {addr: 70,  key: set_ac_charge_start_2, type: time, writable: true, setting: 14}
+  - {addr: 71,  key: set_ac_charge_end_2,   type: time, writable: true, setting: 14}
+  - {addr: 72,  key: set_ac_charge_start_3, type: time, writable: true, setting: 14}
+  - {addr: 73,  key: set_ac_charge_end_3,   type: time, writable: true, setting: 14}
+  # LCD setting 15, "AC Input Load Timer" -- the windows in which the grid
+  # powers the load directly. Addresses confirmed: the decoded values matched
+  # Solar Assistant's AC First schedule exactly (00:00-05:59, 10:00-13:59).
+  - {addr: 152, key: set_ac_first_start_1,  type: time, writable: true, setting: 15}
+  - {addr: 153, key: set_ac_first_end_1,    type: time, writable: true, setting: 15}
+  - {addr: 154, key: set_ac_first_start_2,  type: time, writable: true, setting: 15}
+  - {addr: 155, key: set_ac_first_end_2,    type: time, writable: true, setting: 15}
+  - {addr: 156, key: set_ac_first_start_3,  type: time, writable: true, setting: 15}
+  - {addr: 157, key: set_ac_first_end_3,    type: time, writable: true, setting: 15}
+
+# Working-mode decode for register 0
+state_map:
+  0x0000: standby
+  0x0001: fault
+  0x0010: grid
+  0x00c0: solar_battery
+  0x0014: battery_grid
+  0x0040: battery_offgrid

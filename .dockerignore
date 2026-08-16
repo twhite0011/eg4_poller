@@ -1,0 +1,35 @@
+# Runtime config -- bind-mounted by compose, never baked into the image.
+# Keeps MQTT credentials out of a pushed layer.
+# NOTE: config/eg4_6000xp_registers.yaml is NOT excluded -- it ships in the
+# image as a fallback. Only the credential-bearing config.yaml is kept out.
+config/config.yaml
+config/config.*.yaml
+*.env
+.env
+
+# VCS
+.git
+.gitignore
+.github
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Compose and docs aren't needed inside the image
+docker-compose.yml
+docker-compose.*.yml
+README.md
+LICENSE

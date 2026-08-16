@@ -1,0 +1,55 @@
+services:
+  eg4poll:
+    # Deploy: pull the pinned tag. Avoid :latest -- a pull would silently swap
+    # the running code, which makes "why is this register wrong" unanswerable.
+    image: twhitedocker/eg4poll:0.8.1
+    # Build host only -- comment out `image:` above and uncomment this to build
+    # locally. Cross-arch from x86 needs:
+    #   docker buildx build --platform linux/arm64 -t twhitedocker/eg4poll:0.8.1 --push .
+    # build: .
+
+    container_name: eg4poll
+    restart: unless-stopped
+
+    # Secrets come from ./.env, which is excluded by .dockerignore and should
+    # be gitignored. Keeps credentials out of both the image and the repo.
+    env_file:
+      - .env
+
+    environment:
+      LOG_LEVEL: "INFO"
+
+    devices:
+      # by-id paths are kernel-maintained and stable across reboots (keyed to
+      # each FTDI chip's serial), so no udev rule is needed. Every host path
+      # here must exist before start or Docker refuses to launch the container.
+
+      # EG4 6000XP -- RS485 behind the HDMI-form dongle port. 19200 8N1, Modbus RTU.
+      # The dongle must be removed: it shares this bus.
+      - "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_BG03WJUA-if00-port0:/dev/rs485-inverter-1"
+
+      # Eco-Worthy Cubix -- RS485-1 with the pack's protocol set to HNJD,
+      # which exposes native JBD framing. 9600 8N1. Verified: 115200 and 19200
+      # get no response. Independent of the CAN link to the inverter.
+      - "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A994XDNE-if00-port0:/dev/rs485-cubix-1"
+
+      # Second Cubix -- its own adapter. JBD is not an addressable protocol,
+      # so two JBD packs cannot share a bus. Fill in the by-id path:
+      #   ls -l /dev/serial/by-id/
+      - "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_BG03TTF3-if00-port0:/dev/rs485-cubix-2"
+
+      # EG4 LL-S -- RS485 port, Modbus RTU, 9600 8N1, slave ID 2 from DIP switches.
+      # Solar Assistant cannot share this port: two Modbus masters collide.
+      - "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_BG03E5RH-if00-port0:/dev/rs485-lls-1"
+
+    # 'dialout' on Debian/RPi OS. Verify with: getent group dialout
+    group_add:
+      - "20"
+
+    volumes:
+      # Whole config dir. config.yaml is REQUIRED -- excluded from the image
+      # by .dockerignore, so the container fails loudly without this mount.
+      - ./config:/config:ro
+      # Dev only: mount source so code changes need just `compose restart`
+      # instead of rebuild/push/pull. Comment out for production deploys.
+      # - ./app:/app:ro

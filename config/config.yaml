@@ -1,0 +1,99 @@
+# Writes to the inverter. OFF by default.
+#
+# When false the poller still accepts dry_run commands (validation only, the
+# bus is never touched), so a UI can check a value without the system being
+# armed. Set true only once you have verified a write against the inverter LCD.
+allow_writes: true
+
+poll_interval: 4           # seconds; ticks align to wall-clock multiples
+# Measured budget at 4 s: inverter ~383 ms, cubix ~262 ms, lls ~124 ms.
+# ~10% of the tick. A Modbus timeout-and-retry has been seen to push the
+# inverter to 3360 ms (84% of the budget), which is why 2 s would be tight.
+
+mqtt:
+  host: ${MQTT_HOST}
+  port: ${MQTT_PORT}
+  username: ${MQTT_USER}
+  password: ${MQTT_PASS}
+  client_id: eg4poll
+  base_topic: energy
+
+# --- Naming and tagging ---------------------------------------------------
+# `name` is the MQTT topic segment: energy/<name>/state. It MUST be unique;
+# the poller refuses to start on duplicates rather than let two devices
+# overwrite each other's topic.
+#
+# Use a numbered scheme so a second pack of the same model slots in cleanly:
+#   cubix_1, cubix_2, lls_1, lls_2
+#
+# `model`, `role` and `location` are promoted into the published `tags` object
+# automatically. Anything under an explicit `tags:` mapping is also passed
+# through, so you can add whatever dimensions you want to slice on in Influx.
+# Tag by role rather than by name where you can -- then a Grafana query for
+# role=battery keeps working when you add a pack.
+# --------------------------------------------------------------------------
+
+devices:
+  - name: inverter_1
+    type: modbus
+    enabled: true
+    model: EG4 6000XP
+    role: inverter
+    location: garage
+    port: /dev/rs485-inverter-1
+    baud: 19200
+    unit_id: 1
+    timeout: 1.5
+    read_holding: true
+    register_map: /config/eg4_6000xp_registers.yaml
+
+  - name: cubix_1
+    type: jbd
+    enabled: true
+    model: Eco-Worthy Cubix 100
+    role: battery
+    location: garage
+    tags:
+      chemistry: LiFePO4
+      capacity_ah: 100
+      installed: "2026-08"
+    port: /dev/rs485-cubix-1
+    baud: 9600                # HNJD default; try 115200 if silent
+    timeout: 2.0
+    read_cells: true          # cmd 0x04 -- per-cell mV. 0x03 has NO cell data.
+
+  # EG4 LL-S -- Modbus RTU on its RS485 port. NOT the Pace protocol; the
+  # register map is decoded from tuxntoast/eg4-ll and verified against a live
+  # pack. unit_id must match the pack's DIP switches.
+  # NOTE: Solar Assistant cannot share this port -- two Modbus masters collide.
+  - name: lls_1
+    type: eg4ll
+    enabled: true
+    model: EG4 LL-S 100Ah
+    role: battery
+    location: garage
+    tags:
+      chemistry: LiFePO4
+      capacity_ah: 100
+    port: /dev/rs485-lls-1
+    baud: 9600
+    unit_id: 2                # DIP switch address
+    timeout: 2.0
+
+  # Second Cubix. Needs its OWN USB-RS485 adapter: the JBD protocol is not
+  # addressable, so two JBD packs cannot share a bus -- unlike Modbus, where
+  # a slave ID would distinguish them.
+  - name: cubix_2
+    type: jbd
+    enabled: true
+    model: Eco-Worthy Cubix 100
+    role: battery
+    location: garage
+    tags:
+      chemistry: LiFePO4
+      capacity_ah: 100
+      installed: "2026-08"
+    port: /dev/rs485-cubix-2
+    baud: 9600
+    timeout: 2.0
+    read_cells: true
