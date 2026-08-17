@@ -14,6 +14,7 @@ Design notes:
 """
 
 import asyncio
+import hashlib
 import json
 from datetime import datetime
 import logging
@@ -32,6 +33,13 @@ from pymodbus.exceptions import ModbusException
 import aiomqtt
 
 LOG = logging.getLogger("eg4poll")
+
+# Stamped at build time by the Dockerfile. The recurring failure on this
+# project has not been bad code, it has been not knowing WHICH code is
+# running -- a bind-mounted config picks changes up instantly while the image
+# does not, so the two drift and the symptom looks like a logic bug.
+VERSION = os.environ.get("EG4POLL_VERSION", "dev")
+GIT_SHA = os.environ.get("EG4POLL_SHA", "unknown")
 
 
 # ----------------------------------------------------------------------------
@@ -693,6 +701,20 @@ class Runner:
             for r in results:
                 if isinstance(r, Exception):
                     raise r
+
+def _sha(path: str) -> str:
+    """Short digest of a mounted file, logged at startup.
+
+    A hash is the only cheap way to tell a stale bind mount from a current
+    one. Comparing it against the repo answers the question directly instead
+    of by inference from behaviour.
+    """
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:12]
+    except Exception as e:
+        return f"unreadable ({e})"
+
 
 def load_config(path: str) -> dict:
     with open(path) as f:
