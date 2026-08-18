@@ -14,6 +14,13 @@ COPY --chown=poller:poller --chmod=644 app/ /app/
 COPY --chown=poller:poller --chmod=644 config/eg4_6000xp_registers.yaml /config/eg4_6000xp_registers.yaml
 COPY --chown=poller:poller --chmod=644 config/config.example.yaml /config/config.example.yaml
 
+# /data (docker-compose.yml's eg4poll_config volume) holds the web-managed
+# device/site config that app/devconfig.py writes at runtime. A fresh named
+# volume mounted over a path the image never created would come up
+# root-owned, and this container never runs as root -- creating it here
+# first means Docker seeds the new volume with this directory's ownership.
+RUN mkdir -p /data && chown poller:poller /data
+
 USER poller
 ENV PYTHONUNBUFFERED=1
 CMD ["python", "-u", "/app/poller.py"]

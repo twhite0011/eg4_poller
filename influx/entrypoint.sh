@@ -28,6 +28,13 @@ if [ ! -f "$DATA_DIR/influxd.bolt" ]; then
 
     mkdir -p "$(dirname "$TOKEN_FILE")"
     printf '%s' "$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" > "$TOKEN_FILE"
+    # uid 1000 is eg4poll's own non-root user (see Dockerfile's useradd -u
+    # 1000); influx-init runs as root and can read this regardless of
+    # owner, but eg4poll can't -- a plain chmod 600 alone would leave this
+    # readable only by root, and app/poller.py's _read_secret_file would
+    # just spin until its own timeout, silently disabling Influx writes
+    # rather than erroring loudly.
+    chown 1000:1000 "$TOKEN_FILE"
     chmod 600 "$TOKEN_FILE"
     echo "first boot: generated org=$DOCKER_INFLUXDB_INIT_ORG bucket=$DOCKER_INFLUXDB_INIT_BUCKET, wrote admin token to $TOKEN_FILE"
 elif [ ! -f "$TOKEN_FILE" ]; then

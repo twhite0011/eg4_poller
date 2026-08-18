@@ -37,6 +37,13 @@ POLLER_PASS="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 2
 
 mkdir -p "$MQTT_SHARED"
 printf '%s' "$POLLER_PASS" > "$POLLER_PASS_FILE"
+# uid 1000 is eg4poll's own non-root user (see Dockerfile's useradd -u 1000)
+# -- this file is written here as root, but read there as uid 1000, so it
+# has to be handed to that uid explicitly, the same reasoning as the chown
+# on $PW below (a plain chmod 600 alone would leave it root-only-readable
+# and app/poller.py's _read_secret_file would just spin until its own
+# timeout, silently disabling MQTT rather than erroring loudly).
+chown 1000:1000 "$POLLER_PASS_FILE"
 chmod 600 "$POLLER_PASS_FILE"
 
 mosquitto_passwd -b -c "$PW" poller    "$POLLER_PASS"

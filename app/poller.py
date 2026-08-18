@@ -824,6 +824,13 @@ class Runner:
         tz = self.site_cfg.get("tz") or "UTC"
         if lat is None or lon is None:
             LOG.warning("forecast disabled -- set site lat/lon on the Config page")
+            # Wait for shutdown rather than returning: run() races every task
+            # against self._stop with FIRST_COMPLETED and treats whichever one
+            # finishes first as "the connection broke, reconnect" -- this task
+            # finishing early (a normal, expected state, not a failure) would
+            # otherwise tear down MQTT and every other task on a tight loop,
+            # forever, the moment site coordinates are unset.
+            await self._stop.wait()
             return
 
         # Matches the original inject timing: a short startup delay, then
