@@ -157,8 +157,12 @@ if [[ -n "$CHANGED" ]]; then
     MSG="deploy: $(echo "$CHANGED" | tr '\n' ' ' | cut -c1-120)"
     run "git commit -q -m \"\$(printf '%s' \"$MSG\")\""
     ok "$(git log -1 --oneline 2>/dev/null || echo committed)"
-    git remote get-url origin >/dev/null 2>&1 && run "git push -q" && ok "pushed" \
-        || warn "no origin remote -- commit is local only"
+    if git remote get-url origin >/dev/null 2>&1; then
+        run "git push -q" && ok "pushed" \
+            || warn "push to origin failed (see error above) -- commit is local only"
+    else
+        warn "no origin remote -- commit is local only"
+    fi
 fi
 
 VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
