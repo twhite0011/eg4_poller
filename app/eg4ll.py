@@ -124,7 +124,12 @@ def decode_block(regs: list[int]) -> dict[str, Any]:
     # flagged here rather than left for Node-RED to guess at. Min/max are not
     # computed; that is arithmetic and belongs downstream.
     temps = [_s8(regs, o) for o in (69, 70, 71, 72)]
-    out["temperatures_c"] = temps
+    # float, not raw int: cubix (app/jbd.py) reports this same field with
+    # sub-degree precision, and derive.py flattens both into shared
+    # temp_N_c/temp_min_c/temp_max_c InfluxDB fields -- see remaining_ah's
+    # identical fix above for why a per-device type mismatch here is fatal
+    # to every write from whichever type loses the race.
+    out["temperatures_c"] = [float(t) for t in temps]
     out["temp_probes_active"] = 2 + sum(1 for t in temps[2:] if t != 0)
 
     # Cells start at byte 7 == register 2.
