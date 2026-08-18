@@ -714,8 +714,21 @@ function connect(){
    handler actually checks before executing any non-dry-run write, so a
    second tab (anywhere, any device) cannot also be armed at the same time.
    sessionId is generated once per page load and sent with every arm/disarm
-   call and every write command. */
-const sessionId = crypto.randomUUID();
+   call and every write command. crypto.randomUUID() only exists in secure
+   contexts (HTTPS or localhost) -- this stack is served over plain HTTP,
+   so it's undefined here and throws if called directly. getRandomValues()
+   has no such restriction; build an RFC4122-shaped v4 UUID from it by
+   hand (armlock.py treats this as an opaque string, so the exact shape
+   doesn't matter beyond "unique per page load"). */
+function makeSessionId(){
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const hex = [...b].map(x => x.toString(16).padStart(2, "0"));
+  return `${hex.slice(0,4).join("")}-${hex.slice(4,6).join("")}-${hex.slice(6,8).join("")}-${hex.slice(8,10).join("")}-${hex.slice(10,16).join("")}`;
+}
+const sessionId = makeSessionId();
 
 function updateArmUI(){
   $("armBar").classList.toggle("armed", armed);
