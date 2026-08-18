@@ -2,8 +2,14 @@
 # init-passwd.sh from the *_MQTT_PASS variables in .env). Nothing in this
 # file is a secret -- usernames and topic shapes only.
 
-# Applies to EVERY client, including anonymous ones (mosquitto.conf sets
-# allow_anonymous true) -- rules with no preceding `user` line are global.
+# Applies to every ANONYMOUS client (mosquitto.conf sets allow_anonymous
+# true) -- rules with no preceding `user` line are global, but only for
+# clients that never authenticate. Verified live (mosquitto 2.1.2):
+# authenticating with a username drops a client out of this rule entirely,
+# whether or not that username has its own `user` block below -- mosquitto
+# does not union global rules into an authenticated client's grants, it
+# replaces them. Every account below must therefore grant itself every
+# topic it needs to read explicitly; nothing here is inherited.
 # Read-only, and deliberately covers everything under energy/# with no
 # exceptions -- including energy/+/set, so anyone on the LAN can watch
 # inverter commands go by with no account at all. That's intentional, not
@@ -14,21 +20,23 @@ topic read energy/#
 # derived state (PV correction/energy integration/bank aggregation --
 # app/derive.py -- and the solar forecast, app/forecast.py, all computed
 # in-process now rather than by a separate Node-RED flow). Listens for
-# commands. No explicit read grant on energy/+/set here -- the global rule
-# above already covers it.
+# commands -- needs its own read grant on energy/+/set (see the note
+# above: authenticating opts this account OUT of the global rule, it does
+# not inherit it).
 user poller
+topic read energy/+/set
 topic write energy/+/state
 topic write energy/+/set/result
 topic write energy/derived/#
 
-# settings: used only by solar_settings.html, to publish inverter commands.
-# solar_dash.html and config.html are pure-read and connect with no MQTT
-# account at all now -- the global anonymous rule above already covers
-# them. This account exists purely so a stray or scripted publish from
-# anywhere else on the LAN (or the anonymous path) can't accidentally
-# change a setting; its password (SETTINGS_MQTT_PASS) is intentionally not
-# a strong secret -- this ACL is what actually protects the inverter, not
-# obscurity. Read access is already covered by the global rule above, so
-# there's nothing to grant here beyond the write.
+# settings: solar_settings.html's account. Publishes inverter commands, and
+# also has to read back the derived state it displays and the write
+# results it confirms -- same reasoning as poller above, this account gets
+# nothing from the global rule just by existing. solar_dash.html and
+# config.html don't need any of this: they connect with no MQTT account at
+# all, so they stay genuinely anonymous and the global rule above covers
+# them fully.
 user settings
+topic read energy/derived/+
+topic read energy/+/set/result
 topic write energy/+/set
