@@ -425,7 +425,42 @@ full. Chaining the Cubix pair makes the inverter see 200 of 300 Ah instead of
 
 ## Changelog
 
-### 0.10.0
+### 1.0.1
+* **Fixed a startup-time crash loop that silently blocked all polling.**
+  `_forecast_loop()` returned immediately (no exception) whenever site
+  lat/lon weren't set -- and `Runner.run()` races every task against
+  shutdown with `asyncio.wait(..., FIRST_COMPLETED)`, treating whichever
+  task finishes first as "the MQTT connection broke, reconnect." A disabled
+  forecast finishing early tore down the whole session -- including the
+  real device-polling and command tasks -- and immediately reconnected,
+  forever, at roughly 100 times a second, with device polling never
+  actually running. Fixed by having that path wait on shutdown instead of
+  returning, like every other long-running task. Found on first real
+  deploy: `energy/+/state` had nothing on it despite the container
+  appearing to run.
+* **Fixed two cross-device field-type mismatches** between `app/jbd.py`
+  (Cubix packs) and `app/eg4ll.py` (LL-S): `remaining_ah` and
+  `temperatures_c` were raw ints from the LL-S but floats from Cubix.
+  Both feed InfluxDB's shared `battery` measurement, where a field's type
+  locks to whichever value lands first -- so one driver's writes for that
+  field always got silently rejected, depending on poll order. Both now
+  cast to float in `eg4ll.py`, matching `jbd.py` and `nominal_ah`'s
+  existing convention. Swept all 9 fields the two drivers share to confirm
+  nothing else has the same latent mismatch.
+* **Fixed a container-permissions bug that crashed `eg4poll` on any fresh
+  volume.** The image runs as non-root (`poller`, uid 1000), but nothing
+  created `/data` (the device/site config volume) with that ownership, so
+  a fresh `eg4poll_config` volume came up `root`-owned and unwritable.
+  `Dockerfile` now creates it with the right ownership before `USER
+  poller`, so Docker seeds any new volume mounted there correctly.
+  Same root cause, quieter failure mode, in `mosquitto/init-passwd.sh` and
+  `influx/entrypoint.sh`: both wrote their shared secret files (the
+  poller's MQTT password, the Influx admin token) as `root`-owned `600`,
+  which `eg4poll` couldn't read either -- it just silently disabled MQTT
+  and Influx writes rather than crashing. Both now `chown 1000:1000`
+  before the existing `chmod 600`.
+
+### 1.0.0
 * **The poller MQTT account is now fully internal.** `MQTT_USER`/`MQTT_PASS`
   are gone from `.env` -- `mosquitto/init-passwd.sh` generates a random
   password for the `poller` account on first boot and shares it with
@@ -452,7 +487,7 @@ full. Chaining the Cubix pair makes the inverter see 200 of 300 Ah instead of
   them itself on first boot, and none are typed by anyone. Only the admin
   token leaves the container, over a Docker volume (`influx_shared`), never
   as an environment variable -- `eg4poll` reads it via
-  `app/poller.py`'s `_read_influx_token()`, and `influx-init` uses it once to
+  `app/poller.py`'s `_read_secret_file()`, and `influx-init` uses it once to
   mint the dashboard's separate read-only token, same as before. The admin
   password is generated, used once by Influx's own setup, and then never
   written anywhere -- not even this stack can log into Influx's own UI with
