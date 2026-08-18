@@ -95,7 +95,11 @@ def decode_block(regs: list[int]) -> dict[str, Any]:
     out["voltage"] = round(u16(0) / 100, 2)
     out["current"] = round(s16(1) / 100, 2)          # + charge, - discharge
     out["temperature_mos_c"] = s16(18)
-    out["remaining_ah"] = u16(21)
+    # float, not the raw int register: cubix (app/jbd.py) reports this same
+    # field with sub-Ah precision, and both feed InfluxDB's one "battery"
+    # measurement -- a per-device type mismatch on a shared field name gets
+    # every write from whichever type loses the race rejected outright.
+    out["remaining_ah"] = float(u16(21))
     out["max_charge_current"] = u16(22)
     out["soh"] = u16(23)
     out["soc"] = u16(24)
