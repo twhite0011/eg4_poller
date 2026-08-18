@@ -426,6 +426,27 @@ full. Chaining the Cubix pair makes the inverter see 200 of 300 Ah instead of
 ## Changelog
 
 ### 1.0.1
+* **Fixed a broker ACL gap that silently blocked both real writes and the
+  settings page's display.** `mosquitto/acl`'s global (no-`user`) read
+  rule only applies to truly anonymous clients -- verified live (mosquitto
+  2.1.2): authenticating with a username drops a client out of it
+  entirely, whether or not that username has its own `user` block. The
+  0.10.0 MQTT-account-split changelog entry assumed it was additive to
+  every client; it isn't. In practice this meant `poller` (authenticated)
+  could no longer read `energy/+/set`, so real inverter write commands
+  were silently never received, and `settings` (also authenticated)
+  couldn't read `energy/derived/+` or `energy/+/set/result`, so
+  `solar_settings.html` connected and looked "live" but never displayed a
+  value or a write confirmation. Both accounts now grant themselves every
+  topic they read explicitly rather than relying on the global rule.
+* **Fixed a secure-context crash that left the settings page blank.**
+  `crypto.randomUUID()` (used for the arm-lock's per-page-load session ID)
+  only exists in secure contexts -- HTTPS or `localhost` -- and this stack
+  is served over plain HTTP, so it was `undefined` and threw at the top of
+  the script, before `build()` or `connect()` ever ran. Found by loading
+  the actual page in a headless browser and reading the console, not by
+  code inspection. Fixed with a fallback that builds a v4-shaped UUID from
+  `crypto.getRandomValues()`, which has no such restriction.
 * **Fixed a startup-time crash loop that silently blocked all polling.**
   `_forecast_loop()` returned immediately (no exception) whenever site
   lat/lon weren't set -- and `Runner.run()` races every task against
