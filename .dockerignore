@@ -1,9 +1,10 @@
-# Runtime config -- bind-mounted by compose, never baked into the image.
-# Keeps MQTT credentials out of a pushed layer.
-# NOTE: config/eg4_6000xp_registers.yaml is NOT excluded -- it ships in the
-# image as a fallback. Only the credential-bearing config.yaml is kept out.
+# config/eg4_6000xp_registers.yaml and config/config.example.yaml ARE meant
+# to ship in the image (see Dockerfile) -- no exclusion needed for either;
+# neither holds secrets. config.yaml (the old hand-edited live config) no
+# longer exists as a concept -- device/site config is now runtime state on
+# a volume (see app/devconfig.py), never baked into an image -- but this
+# stays as a guard in case one is ever created by hand again.
 config/config.yaml
-config/config.*.yaml
 *.env
 .env
 
@@ -22,14 +23,30 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
+# dashboard
+dashboard/
+
+# tools
+tools/
+
+# other services' own config -- irrelevant to the eg4poll image
+mosquitto/
+influx/
+nginx/
+
+# git
+.gitignore
+
 # Editors / OS
 .vscode/
 .idea/
 *.swp
 .DS_Store
 
-# Compose and docs aren't needed inside the image
+# Compose, deploy tooling, and docs aren't needed inside the image
 docker-compose.yml
 docker-compose.*.yml
+deploy.sh
+.env.example
 README.md
 LICENSE

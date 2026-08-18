@@ -1,6 +1,10 @@
+# Everything site-specific. Nothing here is in the repo.
 .env
+
 __pycache__/
 *.py[cod]
 .venv/
 *.swp
 .DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Power — angrycat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=Barlow:wght@400;500&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0F1519; --panel:#161F25; --panel-2:#1B262D;
+  --rule:#2A3841; --rule-lit:#3B4E5A;
+  --text:#E4EBEF; --muted:#74868F; --dim:#4C5C65;
+  --pv:#E8B33C; --batt:#3FA7A0; --grid:#7C90B5; --load:#F0F3F5;
+  --warn:#D2694A; --ok:#4E9E6A; --cloud:#5F7480;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --cond:"Barlow Condensed",system-ui,sans-serif;
+  --body:"Barlow",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text)}
+body{font-family:var(--body);font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;min-height:100vh;padding:clamp(10px,1.6vw,22px)}
+.wrap{max-width:1500px;margin:0 auto}
+
+header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;
+  padding-bottom:9px;margin-bottom:12px;border-bottom:1px solid var(--rule)}
+h1{font-family:var(--cond);font-weight:600;font-size:clamp(19px,2.4vw,25px);
+  letter-spacing:.14em;text-transform:uppercase;margin:0}
+h1 span{color:var(--dim);font-weight:400}
+a.back{font-family:var(--mono);font-size:11px;color:var(--muted);text-decoration:none}
+a.back:hover{color:var(--text)}
+.link{margin-left:auto;display:flex;align-items:center;gap:9px;
+  font-family:var(--mono);font-size:11px;color:var(--muted)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--dim);transition:background .3s}
+.dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(78,158,106,.16)}
+.dot.stale{background:var(--warn);box-shadow:0 0 0 3px rgba(210,105,74,.16)}
+
+.quads{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:12px}
+@media (max-width:1080px){.quads{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:3px;
+  padding:clamp(10px,1.5vw,16px)}
+.card > h2{font-family:var(--cond);font-size:12px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--muted);margin:0 0 12px;font-weight:600}
+
+/* ---- top-left: status tiles ---- */
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{background:var(--panel-2);border:1px solid var(--rule);border-radius:2px;
+  padding:11px 13px}
+.tile .k{font-family:var(--cond);font-size:11px;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--muted)}
+.tile .v{font-family:var(--mono);font-size:19px;font-weight:500;margin-top:3px}
+.tile .s{font-family:var(--mono);font-size:10.5px;color:var(--dim);margin-top:2px}
+
+/* ---- flow diagram ---- */
+.diagram svg{display:block;width:100%;height:auto}
+.cond{stroke:var(--rule-lit);stroke-width:1.25;fill:none}
+.flow{stroke-width:2.25;fill:none;stroke-linecap:round;stroke-dasharray:3 9;opacity:0}
+.flow.live{opacity:1;animation:march linear infinite}
+@keyframes march{to{stroke-dashoffset:-24}}
+.junction{fill:var(--rule-lit)}
+.nodebox{fill:var(--panel-2);stroke:var(--rule);stroke-width:1}
+.nlabel{font-family:var(--cond);font-size:11.5px;letter-spacing:.17em;
+  text-transform:uppercase;fill:var(--muted)}
+.nval{font-family:var(--mono);font-weight:500;font-size:21px;fill:var(--text)}
+.nunit{font-family:var(--mono);font-size:10.5px;fill:var(--muted)}
+.nsub{font-family:var(--mono);font-size:10px;fill:var(--dim)}
+.arc-bg{fill:none;stroke:var(--rule);stroke-width:3.5;stroke-linecap:round}
+.arc-fg{fill:none;stroke-width:3.5;stroke-linecap:round;
+  transition:stroke-dasharray .55s cubic-bezier(.4,0,.2,1)}
+
+/* ---- charts ---- */
+.chart{width:100%;height:auto;display:block}
+.gridline{stroke:var(--rule);stroke-width:1}
+.axis{font-family:var(--mono);font-size:9.5px;fill:var(--dim)}
+.legend2{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;
+  font-family:var(--mono);font-size:10px;color:var(--muted)}
+.legend2 i{display:inline-block;width:14px;height:2px;margin-right:6px;
+  vertical-align:3px}
+.bar-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.bar-track{flex:1;height:16px;background:var(--rule);border-radius:2px;
+  overflow:hidden;position:relative}
+.bar-fill{height:100%;background:var(--pv);transition:width .6s ease}
+.bar-num{font-family:var(--mono);font-size:12px;white-space:nowrap}
+
+/* ---- packs ---- */
+.packs{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+  gap:12px;margin-top:12px}
+.pack h2{font-family:var(--cond);font-size:12.5px;letter-spacing:.16em;
+  text-transform:uppercase;margin:0 0 2px;font-weight:600}
+.pack .model{font-family:var(--mono);font-size:10px;color:var(--dim);margin-bottom:12px}
+.row{display:flex;justify-content:space-between;align-items:baseline;
+  padding:3.5px 0;font-size:13px}
+.row .k{font-family:var(--cond);letter-spacing:.09em;text-transform:uppercase;
+  color:var(--muted);font-size:12px}
+.row .v{font-family:var(--mono);font-size:13px;font-weight:500}
+.soc-track{height:5px;background:var(--rule);border-radius:3px;overflow:hidden}
+.soc-fill{height:100%;background:var(--batt);border-radius:3px;transition:width .6s ease}
+.cells{margin-top:12px;padding-top:11px;border-top:1px solid var(--rule)}
+.cells-hd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.cells-hd .k{font-family:var(--cond);font-size:11px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--muted)}
+.cells-hd .v{font-family:var(--mono);font-size:11px}
+.ladder{display:flex;align-items:center;gap:2px;height:30px;position:relative}
+.cell{flex:1;position:relative;height:100%}
+.cell i{position:absolute;left:0;right:0;background:var(--dim);border-radius:1px;
+  transition:all .5s ease}
+.cell.hi i{background:var(--warn)} .cell.lo i{background:var(--grid)}
+.mid{position:absolute;left:0;right:0;top:50%;height:1px;background:var(--rule)}
+
+.prov{display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:6px;
+  vertical-align:1px;cursor:help}
+.prov.measured{background:var(--ok)}
+.prov.corrected{background:linear-gradient(90deg,var(--pv) 50%,transparent 50%);
+  border:1px solid var(--pv)}
+.prov.derived{border:1px solid var(--dim)}
+.legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;padding-top:12px;
+  border-top:1px solid var(--rule);font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.legend div{display:flex;align-items:center;gap:7px}
+.legend .prov{margin:0}
+footer{margin-top:14px;font-family:var(--mono);font-size:10.5px;color:var(--dim);
+  display:flex;gap:18px;flex-wrap:wrap}
+.fault{color:var(--warn)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body><div class="wrap">
+
+<header>
+  <h1>Power <span>/ angrycat</span></h1>
+  <a class="back" href="solar_settings.html">settings</a>
+  <a class="back" href="config.html">config</a>
+  <div class="link"><span class="dot" id="dot"></span><span id="linkTxt">connecting</span></div>
+</header>
+
+<div class="quads">
+  <!-- ============ TOP LEFT: status ============ -->
+  <div class="card">
+    <h2>Status</h2>
+    <div class="tiles">
+      <div class="tile"><div class="k">Inverter</div>
+        <div class="v" id="tMode" style="font-size:15px">—</div>
+        <div class="s" id="tOh">—</div></div>
+      <div class="tile"><div class="k">Solar</div>
+        <div class="v" id="tPvDay">—</div>
+        <div class="s" id="tPvPeak">—</div></div>
+      <div class="tile"><div class="k">Grid</div>
+        <div class="v" id="tGridV">—</div>
+        <div class="s" id="tGridW">—</div></div>
+      <div class="tile"><div class="k">Battery</div>
+        <div class="v" id="tSoc">—</div>
+        <div class="s" id="tRate">—</div></div>
+    </div>
+    <div class="diagram" style="margin-top:14px">
+      <svg id="oneline" viewBox="0 0 760 380" role="img" aria-label="Power flow">
+        <path class="cond" d="M 380 92 L 380 168"/>
+        <path class="cond" d="M 138 192 L 316 192"/>
+        <path class="cond" d="M 444 192 L 622 192"/>
+        <path class="cond" d="M 380 216 L 380 288"/>
+        <path class="flow" id="fPv"   d="M 380 92 L 380 168"  stroke="var(--pv)"/>
+        <path class="flow" id="fGrid" d="M 138 192 L 316 192" stroke="var(--grid)"/>
+        <path class="flow" id="fLoad" d="M 444 192 L 622 192" stroke="var(--load)"/>
+        <path class="flow" id="fBatt" d="M 380 288 L 380 216" stroke="var(--batt)"/>
+        <circle class="junction" cx="380" cy="192" r="3"/>
+        <rect class="nodebox" x="316" y="158" width="128" height="68" rx="2"/>
+        <text class="nlabel" x="380" y="181" text-anchor="middle">6000XP</text>
+        <text class="nsub" x="380" y="199" text-anchor="middle" id="invMode">—</text>
+        <text class="nsub" x="380" y="215" text-anchor="middle" id="invOh">—</text>
+        <g transform="translate(380,50)">
+          <circle class="arc-bg" r="32" style="stroke-dasharray:150 400;transform:rotate(-215deg)"/>
+          <circle class="arc-fg" id="aPv" r="32" stroke="var(--pv)" style="stroke-dasharray:0 400;transform:rotate(-215deg)"/>
+          <text class="nval" y="1" text-anchor="middle" id="vPv">0</text>
+          <text class="nunit" y="14" text-anchor="middle">W</text>
+          <text class="nlabel" y="-43" text-anchor="middle">Solar</text></g>
+        <g transform="translate(88,192)">
+          <circle class="arc-bg" r="32" style="stroke-dasharray:150 400;transform:rotate(-215deg)"/>
+          <circle class="arc-fg" id="aGrid" r="32" stroke="var(--grid)" style="stroke-dasharray:0 400;transform:rotate(-215deg)"/>
+          <text class="nval" y="1" text-anchor="middle" id="vGrid">0</text>
+          <text class="nunit" y="14" text-anchor="middle">W</text>
+          <text class="nlabel" y="-43" text-anchor="middle">Grid</text></g>
+        <g transform="translate(672,192)">
+          <circle class="arc-bg" r="32" style="stroke-dasharray:150 400;transform:rotate(-215deg)"/>
+          <circle class="arc-fg" id="aLoad" r="32" stroke="var(--load)" style="stroke-dasharray:0 400;transform:rotate(-215deg)"/>
+          <text class="nval" y="1" text-anchor="middle" id="vLoad">0</text>
+          <text class="nunit" y="14" text-anchor="middle">W</text>
+          <text class="nlabel" y="-43" text-anchor="middle">Load</text>
+          <text class="nsub" y="46" text-anchor="middle" id="loadSrc">—</text></g>
+        <g transform="translate(380,326)">
+          <circle class="arc-bg" r="40" style="stroke-dasharray:188 500;transform:rotate(-215deg)"/>
+          <circle class="arc-fg" id="aBatt" r="40" stroke="var(--batt)" style="stroke-dasharray:0 500;transform:rotate(-215deg)"/>
+          <text class="nval" y="-4" text-anchor="middle" id="vBatt">0</text>
+          <text class="nunit" y="9" text-anchor="middle">W</text>
+          <text class="nsub" y="25" text-anchor="middle" id="vSoc">—</text>
+          <text class="nlabel" y="-51" text-anchor="middle">Battery</text></g>
+      </svg>
+    </div>
+  </div>
+
+  <!-- ============ TOP RIGHT: forecast ============ -->
+  <div class="card">
+    <h2>PV today — forecast vs actual</h2>
+    <div class="bar-row">
+      <span class="bar-num" id="pvGen">— kWh</span>
+      <div class="bar-track"><div class="bar-fill" id="pvBar" style="width:0%"></div></div>
+      <span class="bar-num" id="pvRem" style="color:var(--muted)">— kWh left</span>
+    </div>
+    <svg id="fc" class="chart" viewBox="0 0 720 260" preserveAspectRatio="none"></svg>
+    <div class="legend2">
+      <div><i style="background:var(--pv)"></i>Actual</div>
+      <div><i style="background:var(--pv);opacity:.55;height:0;border-top:2px dashed var(--pv)"></i>Forecast</div>
+      <div><i style="background:var(--cloud)"></i>Cloud cover</div>
+      <div style="margin-left:auto" id="fcNote"></div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:12px">
+  <h2>Last 24 hours</h2>
+  <svg id="ov" class="chart" viewBox="0 0 1440 300" preserveAspectRatio="none"></svg>
+  <div class="legend2">
+    <div><i style="background:var(--pv)"></i>Solar</div>
+    <div><i style="background:var(--load)"></i>Load</div>
+    <div><i style="background:var(--batt)"></i>Battery</div>
+    <div><i style="background:var(--grid)"></i>Grid</div>
+    <div style="margin-left:auto" id="ovNote"></div>
+  </div>
+</div>
+
+<div class="packs" id="packs"></div>
+
+<div class="legend">
+  <div><span class="prov measured"></span><span title="Read directly by a dedicated instrument">Measured</span></div>
+  <div><span class="prov corrected"></span><span title="Known sensor offset removed">Corrected</span></div>
+  <div><span class="prov derived"></span><span title="Computed from other readings">Derived</span></div>
+</div>
+
+<footer><span id="ftTick">—</span><span id="ftPacks">—</span><span id="ftFault"></span></footer>
+</div>
+
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script>
+/* =========================================================================
+   Config
+   ========================================================================= */
+const CFG = {
+  /* Proxied by nginx at /mqtt, so this follows whatever scheme and host the
+     page was loaded from -- ws:// on http, wss:// behind TLS, no edit needed.
+     Point it at the broker directly to bypass nginx. */
+  broker: (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/mqtt",
+
+  /* This page only ever reads, so it connects with no MQTT account at all --
+     mosquitto/acl grants anonymous clients read on energy/# directly (see
+     mosquitto.conf's allow_anonymous true). Only solar_settings.html, which
+     publishes writes, authenticates (see its own CFG.username/password). */
+  username: undefined,
+  password: undefined,
+
+  topics: ["energy/derived/+"],
+
+  scale: { pv: 4000, grid: 8000, load: 6000, batt: 6000 },  // overwritten by /api/site
+  ohWindowSec: 120,
+  staleAfterSec: 45,
+
+  /* HISTORY -------------------------------------------------------------
+     MQTT gives live values. Anything spanning time comes from InfluxDB:
+       - today's actual PV curve (MQTT would only cover this page session)
+       - today's totals, summed from the *_wh_delta fields, which is what
+         those fields exist for -- the running kWh counters in Node-RED
+         reset whenever Node-RED restarts
+       - the 24 h overview
+
+     Queries go through an nginx proxy that injects a READ-ONLY token
+     server-side. See nginx-influx.conf. Never put the token in this file --
+     org/bucket/tz come from /api/site instead (see init()), which reads
+     org/bucket from this container's own INFLUX_ORG/INFLUX_BUCKET env vars
+     and tz from the same config.yaml the Config page edits. */
+  influx: {
+    url: "/influx/api/v2/query",
+    org: "", bucket: "", tz: "UTC",
+    refreshSec: 300,
+  },
+};
+
+const MODELS = {
+  cubix_1: "Eco-Worthy Cubix 100 · JBD",
+  cubix_2: "Eco-Worthy Cubix 100 · JBD",
+  lls_1:   "EG4 LL-S 100Ah · Modbus",
+};
+
+/* ========================================================================= */
+const $ = id => document.getElementById(id);
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const fmtW = w => (w==null||!isFinite(w)) ? "—"
+  : (Math.abs(w) >= 10000 ? (w/1000).toFixed(1)+"k" : Math.round(w).toString());
+const setArc = (el,f,r) => {
+  const sweep = 2*Math.PI*r*(215/360);
+  el.style.strokeDasharray = `${(sweep*clamp(f,0,1)).toFixed(1)} ${2*Math.PI*r}`;
+};
+function setFlow(el,w,scale){
+  if (Math.abs(w) < 12) { el.classList.remove("live"); return; }
+  el.classList.add("live");
+  el.style.animationDuration = (2.4 - 2.0*clamp(Math.abs(w)/scale,0,1)).toFixed(2)+"s";
+}
+
+const S = { inverter_1:null, bank:null, forecast:null, packs:{} };
+let ohBuf = [], lastMsg = 0;
+
+/* History, from InfluxDB. Refreshed on a timer, not per message. */
+const H = {
+  pvHours: {},        // hour -> mean watts, today
+  pvDayKwh: 0,        // sum of pv_energy_wh_delta since local midnight
+  pvPeak: 0,          // max pv_total_w_corrected today
+  battInKwh: 0, battOutKwh: 0,
+  overview: [],       // [{t, pv, load, batt, grid}] last 24 h
+  fcHours: [],        // [{h, w, cloud}] today's forecast, from Influx
+  ok: false, err: "",
+};
+
+/* ---------- load / grid resolution ---------- */
+function loadWatts(){ return resolveLoad().w; }
+/* Resolve the load, and say honestly where it came from.
+ *
+ * eps_power is not simply unreliable -- it is correct OFF-GRID, where the
+ * load really is on the EPS output, and reads 0 on grid pass-through, where
+ * the load sits on the bypass and the inverter cannot see it. So the fallback
+ * is usable, but only when we can tell which case we are in.
+ *
+ * Returns {w, src, ok}. ok=false means the load is genuinely unknown, and
+ * anything derived from it (the overhead) must be withheld rather than
+ * quietly computed from a zero.
+ */
+function resolveLoad(){
+  const inv = S.inverter_1;
+  if (!inv) return { w: 0, src: "no data", ok: false };
+  const eps  = inv.eps_power ?? 0;
+  const grid = inv.grid_power ?? 0;
+  // eps 0 while the grid is delivering means pass-through: there IS load,
+  // the inverter just is not measuring it.
+  if (eps === 0 && grid > 50)
+    return { w: 0, src: "bypass — not measured", ok: false };
+  return { w: eps, src: "inverter eps", ok: true };
+}
+
+function loadUnknown(){ return !resolveLoad().ok; }
+
+function gridWatts(){
+  return S.inverter_1 ? (S.inverter_1.grid_power ?? 0) : 0;
+}
+
+/* =========================================================================
+   InfluxDB
+   ========================================================================= */
+// Built once CFG.influx.tz/org/bucket are known (see init()) -- these are
+// template literals, evaluated at the moment each is assigned, so they have
+// to wait until /api/site has actually resolved rather than being const'd
+// at parse time against still-empty CFG.influx values.
+let TZ = "", Q = {};
+function buildQueries(){
+  TZ = `import "timezone"
+import "date"
+option location = timezone.location(name: "${CFG.influx.tz}")
+midnight = date.truncate(t: now(), unit: 1d)
+`;
+  Q = {
+  // Hourly mean PV for today. This is the actual curve behind the forecast.
+  pvHours: `${TZ}
+from(bucket:"${CFG.influx.bucket}")
+  |> range(start: midnight)
+  |> filter(fn:(r)=> r._measurement=="inverter" and r._field=="pv_total_w_corrected")
+  |> aggregateWindow(every:1h, fn:mean, createEmpty:false, timeSrc:"_start")
+  |> keep(columns:["_time","_value"])`,
+
+  // Today's energy, summed from the DELTA fields. The running kWh counters in
+  // Node-RED live in flow context and reset on restart; the deltas are
+  // per-interval and immune to that, which is the whole reason they exist.
+  totals: `${TZ}
+pv = from(bucket:"${CFG.influx.bucket}")
+  |> range(start: midnight)
+  |> filter(fn:(r)=> r._measurement=="inverter" and r._field=="pv_energy_wh_delta")
+  |> sum() |> map(fn:(r)=>({_field:"pv_wh", _value:r._value}))
+bat = from(bucket:"${CFG.influx.bucket}")
+  |> range(start: midnight)
+  |> filter(fn:(r)=> r._measurement=="bank" and
+       (r._field=="energy_in_wh_delta" or r._field=="energy_out_wh_delta"))
+  |> group(columns:["_field"]) |> sum()
+  |> map(fn:(r)=>({_field:r._field, _value:r._value}))
+pk = from(bucket:"${CFG.influx.bucket}")
+  |> range(start: midnight)
+  |> filter(fn:(r)=> r._measurement=="inverter" and r._field=="pv_total_w_corrected")
+  |> max() |> map(fn:(r)=>({_field:"pv_peak", _value:r._value}))
+union(tables:[pv, bat, pk]) |> keep(columns:["_field","_value"])`,
+
+  // Today's forecast curve, INCLUDING future hours. Written by
+  // 05_forecast_model as one point per hour at that hour's own timestamp, so
+  // the chart no longer depends on a retained MQTT payload being present.
+  forecast: `${TZ}
+from(bucket:"${CFG.influx.bucket}")
+  |> range(start: midnight, stop: date.add(d: 1d, to: midnight))
+  |> filter(fn:(r)=> r._measurement=="forecast_hourly" and
+       (r._field=="w" or r._field=="cloud"))
+  |> keep(columns:["_time","_field","_value"])`,
+
+  // 24 h overview at 5 min resolution: 288 points x 4 series.
+  overview: `${TZ}
+from(bucket:"${CFG.influx.bucket}")
+  |> range(start: -24h)
+  |> filter(fn:(r)=>
+       (r._measurement=="inverter" and (r._field=="pv_total_w_corrected"
+          or r._field=="grid_power" or r._field=="eps_power"))
+    or (r._measurement=="bank" and r._field=="power_w"))
+  |> aggregateWindow(every:5m, fn:mean, createEmpty:false)
+  |> keep(columns:["_time","_field","_value"])`,
+  };
+}
+
+async function flux(query){
+  const res = await fetch(CFG.influx.url + "?org=" + encodeURIComponent(CFG.influx.org), {
+    method: "POST",
+    headers: { "Content-Type": "application/vnd.flux", "Accept": "application/csv" },
+    body: query,
+  });
+  if (!res.ok) throw new Error(`influx ${res.status}: ${(await res.text()).slice(0,120)}`);
+  return parseCsv(await res.text());
+}
+
+/* Influx returns ANNOTATED CSV: comment lines starting with #, then a header,
+   then rows -- and a blank line plus a fresh header for each result table.
+   Parsed into plain objects keyed by column name. */
+function parseCsv(text){
+  const out = [];
+  let hdr = null;
+  for (const line of text.split(/\r?\n/)){
+    if (!line.trim()) { hdr = null; continue; }
+    if (line.startsWith("#")) continue;
+    const cells = line.split(",");
+    if (!hdr) { hdr = cells; continue; }
+    const row = {};
+    hdr.forEach((k,i) => { if (k) row[k] = cells[i]; });
+    out.push(row);
+  }
+  return out;
+}
+
+async function loadHistory(){
+  try {
+    const [hrs, tot, ov, fc] = await Promise.all([
+      flux(Q.pvHours), flux(Q.totals), flux(Q.overview), flux(Q.forecast)]);
+
+    H.pvHours = {};
+    for (const r of hrs){
+      if (!r._time || r._value === "") continue;
+      H.pvHours[new Date(r._time).getHours()] = parseFloat(r._value);
+    }
+
+    for (const r of tot){
+      const v = parseFloat(r._value);
+      if (!isFinite(v)) continue;
+      if (r._field === "pv_wh")               H.pvDayKwh   = v/1000;
+      else if (r._field === "pv_peak")        H.pvPeak     = v;
+      else if (r._field === "energy_in_wh_delta")  H.battInKwh  = v/1000;
+      else if (r._field === "energy_out_wh_delta") H.battOutKwh = v/1000;
+    }
+
+    const by = {};
+    for (const r of ov){
+      if (!r._time || r._value === "") continue;
+      const t = new Date(r._time).getTime();
+      (by[t] = by[t] || {t})[r._field] = parseFloat(r._value);
+    }
+    H.overview = Object.values(by).sort((a,b)=>a.t-b.t);
+
+    const fh = {};
+    for (const r of fc){
+      if (!r._time || r._value === "") continue;
+      const hh = new Date(r._time).getHours();
+      (fh[hh] = fh[hh] || {h:hh})[r._field] = parseFloat(r._value);
+    }
+    H.fcHours = Object.values(fh).sort((a,b)=>a.h-b.h);
+
+    H.ok = true; H.err = "";
+  } catch(e){
+    H.ok = false; H.err = e.message;
+    console.warn("influx:", e);
+  }
+  render();
+}
+
+/* =========================================================================
+   Forecast chart
+   ========================================================================= */
+function drawForecast(){
+  const f = S.forecast;
+  const svg = $("fc");
+  const today = new Date().toISOString().slice(0,10);
+
+  // Forecast curve: prefer Influx, which holds one point per hour including
+  // future hours and survives a broker restart. The retained MQTT payload is
+  // the fallback and still supplies the live remaining/tomorrow figures.
+  const day = H.fcHours.length
+    ? H.fcHours.map(p => ({ t:`${today}T${String(p.h).padStart(2,"0")}:00`,
+                            w:p.w ?? 0, cloud:p.cloud ?? null }))
+    : ((f && f.series) ? f.series.filter(p => p.t.slice(0,10) === today) : []);
+
+  const gen = H.pvDayKwh;
+  const rem = f ? (f.forecast_remaining_kwh ?? 0) : 0;
+  $("pvGen").textContent = gen.toFixed(2)+" kWh generated";
+  $("pvRem").textContent = f ? rem.toFixed(2)+" kWh forecast left" : "awaiting forecast";
+  $("pvBar").style.width = clamp((gen+rem) ? gen/(gen+rem)*100 : 0,0,100)+"%";
+  $("fcNote").textContent = !H.ok ? `history unavailable — ${H.err}`
+    : f ? `tomorrow ${(f.forecast_tomorrow_kwh ?? 0).toFixed(1)} kWh`
+        : (H.fcHours.length ? "forecast from influx" : "no forecast yet");
+
+  const haveActual = Object.keys(H.pvHours).length > 0;
+  if (!day.length && !haveActual){ svg.innerHTML = ""; return; }
+
+  // NB: not `H` -- that is the global history object, and shadowing it here
+  // puts every earlier H.* reference in this function into the temporal dead
+  // zone, which throws and takes render() down with it.
+  const W=720,CH=260,L=42,R=34,T=12,B=26;
+  const iw=W-L-R, ih=CH-T-B;
+  const maxW = Math.max(CFG.scale.pv*0.4, ...day.map(p=>p.w), H.pvPeak) * 1.12;
+  // Fall back to a fixed daylight window when there is no forecast to span.
+  const ahAll = Object.keys(H.pvHours).map(Number);
+  const h0 = day.length ? +day[0].t.slice(11,13)
+                        : (ahAll.length ? Math.min(...ahAll) : 5);
+  const h1 = day.length ? +day[day.length-1].t.slice(11,13)
+                        : (ahAll.length ? Math.max(...ahAll) : 20);
+  const x = h => L + ((h-h0)/(h1-h0||1))*iw;
+  const y = w => T + ih - (w/maxW)*ih;
+  const yc = c => T + ih - (c/100)*ih;
+
+  let g = "";
+  // gridlines
+  for (let i=0;i<=4;i++){
+    const yy = T + ih*i/4, v = Math.round(maxW*(1-i/4));
+    g += `<line class="gridline" x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}"/>`;
+    g += `<text class="axis" x="${L-6}" y="${yy+3}" text-anchor="end">${v>=1000?(v/1000).toFixed(1)+"k":v}</text>`;
+    g += `<text class="axis" x="${W-R+6}" y="${yy+3}">${100-i*25}</text>`;
+  }
+  for (let hh=h0; hh<=h1; hh+=3){
+    g += `<text class="axis" x="${x(hh)}" y="${CH-8}" text-anchor="middle">${hh}:00</text>`;
+  }
+
+  // cloud cover — a filled band, deliberately behind everything else
+  const cl = day.filter(p=>p.cloud!=null);
+  if (cl.length){
+    const pts = cl.map(p=>`${x(+p.t.slice(11,13))},${yc(p.cloud)}`).join(" ");
+    g += `<polyline points="${pts}" fill="none" stroke="var(--cloud)" stroke-width="1.5" opacity=".75"/>`;
+  }
+
+  // forecast — dashed
+  if (day.length){
+    const fp = day.map(p=>`${x(+p.t.slice(11,13))},${y(p.w)}`).join(" ");
+    g += `<polyline points="${fp}" fill="none" stroke="var(--pv)" stroke-width="2"
+            stroke-dasharray="5 4" opacity=".65"/>`;
+  }
+
+  // actual — solid, filled. From InfluxDB, so it covers the whole day
+  // regardless of when this page was opened.
+  const ah = Object.keys(H.pvHours).map(Number).sort((a,b)=>a-b);
+  if (ah.length){
+    const ap = ah.map(hh=>`${x(hh)},${y(H.pvHours[hh])}`);
+    g += `<polygon points="${x(ah[0])},${T+ih} ${ap.join(" ")} ${x(ah[ah.length-1])},${T+ih}"
+            fill="var(--pv)" opacity=".16"/>`;
+    g += `<polyline points="${ap.join(" ")}" fill="none" stroke="var(--pv)" stroke-width="2.25"/>`;
+  }
+
+  // now marker
+  const nowH = new Date().getHours() + new Date().getMinutes()/60;
+  if (nowH>=h0 && nowH<=h1){
+    g += `<line x1="${x(nowH)}" y1="${T}" x2="${x(nowH)}" y2="${T+ih}"
+            stroke="var(--warn)" stroke-width="1" stroke-dasharray="2 3" opacity=".8"/>`;
+  }
+  svg.innerHTML = g;
+
+  // headline bar
+}
+
+/* =========================================================================
+   24 h overview
+   ========================================================================= */
+function drawOverview(){
+  const svg = $("ov");
+  if (!H.overview.length){
+    svg.innerHTML = "";
+    $("ovNote").textContent = H.ok ? "no data in range" : "history unavailable";
+    return;
+  }
+  const W=1440,Hh=300,L=52,R=14,T=10,B=24;
+  const iw=W-L-R, ih=Hh-T-B;
+  const d = H.overview;
+  const t0=d[0].t, t1=d[d.length-1].t;
+
+  // Battery is signed; everything else is not. A symmetric scale would waste
+  // half the panel, so the axis spans the actual min and max across all series.
+  let lo=0, hi=0;
+  const SER = [
+    ["pv_total_w_corrected","var(--pv)",2],
+    ["eps_power","var(--load)",1.5],
+    ["power_w","var(--batt)",1.5],
+    ["grid_power","var(--grid)",1.5],
+  ];
+  for (const p of d) for (const [k] of SER){
+    const v=p[k]; if (v==null||!isFinite(v)) continue;
+    if (v<lo) lo=v; if (v>hi) hi=v;
+  }
+  hi = Math.max(hi, 500); lo = Math.min(lo, 0);
+  const pad=(hi-lo)*0.08; hi+=pad; lo-=pad;
+
+  const x = t => L + ((t-t0)/((t1-t0)||1))*iw;
+  const y = v => T + ih - ((v-lo)/((hi-lo)||1))*ih;
+
+  let g="";
+  for (let i=0;i<=4;i++){
+    const v = hi - (hi-lo)*i/4, yy = y(v);
+    g += `<line class="gridline" x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}"/>`;
+    g += `<text class="axis" x="${L-6}" y="${yy+3}" text-anchor="end">${
+      Math.abs(v)>=1000 ? (v/1000).toFixed(1)+"k" : Math.round(v)}</text>`;
+  }
+  if (lo < 0){   // zero line, so charge/discharge is readable at a glance
+    g += `<line x1="${L}" y1="${y(0)}" x2="${W-R}" y2="${y(0)}"
+            stroke="var(--rule-lit)" stroke-width="1"/>`;
+  }
+  // hour ticks every 3 h, on the hour
+  for (let t=Math.ceil(t0/36e5)*36e5; t<=t1; t+=3*36e5){
+    const dt=new Date(t);
+    g += `<text class="axis" x="${x(t)}" y="${Hh-7}" text-anchor="middle">${
+      String(dt.getHours()).padStart(2,"0")}:00</text>`;
+  }
+
+  // Solar filled, the rest as lines. Filling more than one would make the
+  // overlaps unreadable.
+  const path = k => d.filter(p=>p[k]!=null&&isFinite(p[k]))
+                     .map(p=>`${x(p.t).toFixed(1)},${y(p[k]).toFixed(1)}`).join(" ");
+  const pvp = path("pv_total_w_corrected");
+  if (pvp) g += `<polygon points="${x(t0)},${y(0)} ${pvp} ${x(t1)},${y(0)}"
+                   fill="var(--pv)" opacity=".14"/>`;
+  for (const [k,c,w] of SER){
+    const p = path(k);
+    if (p) g += `<polyline points="${p}" fill="none" stroke="${c}" stroke-width="${w}"
+                   stroke-linejoin="round" opacity=".92"/>`;
+  }
+  svg.innerHTML = g;
+  $("ovNote").textContent = `${d.length} pts · 5 min · updated ${
+    new Date().toLocaleTimeString()}`;
+}
+
+/* =========================================================================
+   Render
+   ========================================================================= */
+function render(){
+  const inv = S.inverter_1, bank = S.bank;
+  const pv   = inv ? (inv.pv_total_w_corrected ?? inv.pv_total_w ?? 0) : 0;
+  const grid = gridWatts();
+  const load = loadWatts();
+  const bw   = bank ? (bank.power_w ?? 0) : 0;
+  const soc  = bank ? bank.soc : null;
+
+  $("vPv").textContent = fmtW(pv);   setArc($("aPv"), pv/CFG.scale.pv, 32);
+  setFlow($("fPv"), pv, CFG.scale.pv);
+  $("vGrid").textContent = fmtW(grid); setArc($("aGrid"), grid/CFG.scale.grid, 32);
+  setFlow($("fGrid"), grid, CFG.scale.grid);
+  $("vLoad").textContent = fmtW(load); setArc($("aLoad"), load/CFG.scale.load, 32);
+  setFlow($("fLoad"), load, CFG.scale.load);
+  // Says which case resolveLoad() landed in -- "inverter eps" normally,
+  // "bypass — not measured" during grid pass-through.
+  const lsrc = resolveLoad();
+  $("loadSrc").textContent = lsrc.src;
+  $("vLoad").textContent = lsrc.ok ? fmtW(load) : "?";
+
+  $("vBatt").textContent = fmtW(Math.abs(bw));
+  $("vSoc").textContent = soc==null ? "—"
+    : `${soc.toFixed(0)}% · ${bw>=0?"charging":"discharging"}`;
+  setArc($("aBatt"), soc==null?0:soc/100, 40);
+  setFlow($("fBatt"), bw, CFG.scale.batt);
+  $("fBatt").setAttribute("d", bw>=0 ? "M 380 216 L 380 288" : "M 380 288 L 380 216");
+
+  /* Overhead = what goes in, minus what comes out.
+   *
+   *   in  = pv + grid_import + battery_discharge
+   *   out = load + battery_charge
+   *
+   * Averaged because it is a small difference of large numbers measured by
+   * instruments with no shared clock: 1% input noise lands as 10-20% output
+   * noise, and a compressor step puts its whole magnitude into the residual
+   * until every source has caught up.
+   *
+   * Sampling happens in the MQTT handler on the INVERTER tick, not here.
+   * render() runs on every message, including packs and forecast updates
+   * that arrive on their own schedule -- sampling here would produce
+   * unevenly spaced points per window, most of them reusing a stale
+   * inverter reading while the load term moved. The mean would then be
+   * weighted by message arrival rather than by time.
+   */
+  if (inv && bank && ohBuf.length){
+    // Work entirely in tick_ts, never mixing in Date.now(). The poller's
+    // clock is the one these samples are stamped with; mixing the two makes
+    // the window meaningless if the two clocks differ at all.
+    const last = ohBuf[ohBuf.length-1].t;
+    // Time-weighted: samples are ~4 s apart but drop out when a poll is slow,
+    // and a plain mean would over-weight the dense stretches.
+    let num = 0, den = 0;
+    for (let i = 0; i < ohBuf.length - 1; i++){
+      const dt = ohBuf[i+1].t - ohBuf[i].t;
+      if (dt <= 0 || dt > 30) continue;      // gap: do not extrapolate across it
+      num += ohBuf[i].w * dt; den += dt;
+    }
+    const mean = den ? num/den : ohBuf[ohBuf.length-1].w;
+    const span = Math.round(last - ohBuf[0].t);
+    const bad = loadUnknown();
+    $("invOh").textContent = bad
+      ? "overhead — load unknown"
+      : `${fmtW(mean)} W overhead · ${span}s · ${ohBuf.length}n`;
+    $("tOh").textContent = bad ? "load unknown" : `${fmtW(mean)} W overhead`;
+    // The component terms, for when the number looks wrong.
+    $("invOh").title = bad
+      ? `No data on ${CFG.load.topic}. Falling back to the inverter's `
+        + `eps_power, which reads 0 on grid pass-through.`
+      : `pv ${fmtW(pv)} + grid ${fmtW(Math.max(0,grid))} + batt-out `
+        + `${fmtW(Math.max(0,-bw))}\n  = ${fmtW(pv+Math.max(0,grid)+Math.max(0,-bw))} in\n`
+        + `load ${fmtW(load)} + batt-in ${fmtW(Math.max(0,bw))}\n`
+        + `  = ${fmtW(load+Math.max(0,bw))} out`;
+  } else {
+    // Self-describing failure. "—" tells you nothing; each of these points at
+    // exactly one missing input.
+    const lsrc = resolveLoad();
+    const why =
+      !inv                ? "waiting for energy/derived/inverter_1"
+      : !bank             ? "waiting for energy/derived/bank"
+      : !lsrc.ok          ? `load ${lsrc.src}`
+      : "collecting samples";
+    $("invOh").textContent = `overhead — ${why}`;
+    $("tOh").textContent = why;
+  }
+  const mode = (inv?.state || "—").replace(/_/g," ");
+  $("invMode").textContent = mode;  $("tMode").textContent = mode;
+
+  $("tPvDay").textContent = H.pvDayKwh.toFixed(2)+" kWh";
+  $("tPvPeak").textContent = "peak "+fmtW(H.pvPeak)+" W";
+  $("tGridV").textContent = inv?.grid_voltage != null ? inv.grid_voltage.toFixed(1)+" V" : "—";
+  $("tGridW").textContent = fmtW(grid)+" W";
+  $("tSoc").textContent = soc==null ? "—" : soc.toFixed(0)+"%";
+  $("tRate").textContent = bank ? `${bw>=0?"+":""}${fmtW(bw)} W` : "—";
+
+  renderPacks(); renderFooter(); drawForecast(); drawOverview();
+}
+
+function packCard(id,d){
+  const soc = d.soc ?? 0;
+  const cells = [];
+  for (let i=1;i<=16;i++){ const v=d[`cell_${String(i).padStart(2,"0")}_mv`]; if(v) cells.push(v); }
+  const mx = cells.length?Math.max(...cells):0, mn = cells.length?Math.min(...cells):0;
+  const avg = cells.length?cells.reduce((a,b)=>a+b,0)/cells.length:0;
+  const dev = Math.max(2, mx-mn);
+  const ladder = cells.map((v,i)=>{
+    const rel=(v-avg)/dev, h=Math.max(2,Math.abs(rel)*28);
+    const cls = (v===mx&&mx!==mn)?"hi":(v===mn&&mx!==mn)?"lo":"";
+    return `<div class="cell ${cls}" title="cell ${i+1}: ${v} mV"><i style="${
+      rel>=0?`bottom:50%;height:${h}px`:`top:50%;height:${h}px`}"></i></div>`;
+  }).join("");
+  const flt = (d.faults_list||"").length ? d.faults_list : (d.problem?"fault":"");
+  return `<div class="card pack">
+    <h2>${id.replace(/_/g," ")}</h2>
+    <div class="model">${MODELS[id]||""}</div>
+    <div class="row" style="padding:0 0 6px"><span class="k">State of charge</span>
+      <span class="v">${soc.toFixed(0)}%<span class="prov measured" title="BMS coulomb count"></span></span></div>
+    <div class="soc-track"><div class="soc-fill" style="width:${clamp(soc,0,100)}%"></div></div>
+    <div style="height:8px"></div>
+    <div class="row"><span class="k">Power</span><span class="v">${fmtW(d.power_w)} W</span></div>
+    <div class="row"><span class="k">Current</span><span class="v">${(d.current??0).toFixed(2)} A<span class="prov measured" title="BMS shunt — ground truth"></span></span></div>
+    <div class="row"><span class="k">Voltage</span><span class="v">${(d.voltage??0).toFixed(2)} V</span></div>
+    <div class="row"><span class="k">Temperature</span><span class="v">${d.temp_max_c!=null?d.temp_max_c.toFixed(1)+" °C":"—"}</span></div>
+    <div class="row"><span class="k">Charged / drawn</span><span class="v">${(d.energy_in_kwh??0).toFixed(2)} / ${(d.energy_out_kwh??0).toFixed(2)} kWh<span class="prov derived" title="Integrated from measured power"></span></span></div>
+    ${flt?`<div class="row"><span class="k">Fault</span><span class="v fault">${flt}</span></div>`:""}
+    <div class="cells"><div class="cells-hd"><span class="k">Cell spread</span>
+      <span class="v">${cells.length?`${mx-mn} mV · ${mn}–${mx}`:"no data"}</span></div>
+      <div class="ladder"><div class="mid"></div>${ladder}</div></div>
+  </div>`;
+}
+const renderPacks = () =>
+  $("packs").innerHTML = Object.keys(S.packs).sort().map(id=>packCard(id,S.packs[id])).join("");
+
+function renderFooter(){
+  const b = S.bank;
+  $("ftTick").textContent = lastMsg ? "updated "+new Date(lastMsg*1000).toLocaleTimeString() : "—";
+  $("ftPacks").textContent = b ? `${b.pack_count??0} packs · SOC spread ${b.soc_spread??"—"}% · share ±${b.share_imbalance_pct??"—"}%` : "—";
+  const f = Object.entries(S.packs).filter(([,d])=>d.problem).map(([k])=>k);
+  $("ftFault").textContent = f.length ? "FAULT: "+f.join(", ") : "";
+  $("ftFault").className = f.length ? "fault" : "";
+}
+
+/* =========================================================================
+   MQTT
+   ========================================================================= */
+const setLink = (s,t) => { $("dot").className = "dot"+(s?" "+s:""); $("linkTxt").textContent = t; };
+
+function connect(){
+  setLink("","connecting");
+  const c = mqtt.connect(CFG.broker, {
+    username: CFG.username||undefined, password: CFG.password||undefined,
+    reconnectPeriod: 4000, connectTimeout: 8000,
+  });
+  c.on("connect", ()=>{ setLink("on","live"); CFG.topics.forEach(t=>c.subscribe(t)); });
+  c.on("reconnect", ()=>setLink("stale","reconnecting"));
+  c.on("error", e=>setLink("stale","error: "+(e.message||e)));
+  c.on("close", ()=>setLink("stale","offline"));
+
+  c.on("message",(topic,buf)=>{
+    const raw = buf.toString();
+    let d; try { d = JSON.parse(raw); } catch { d = parseFloat(raw); }
+
+    if (topic.startsWith("energy/derived/")){
+      const dev = topic.split("/").pop();
+      lastMsg = d.tick_ts || Date.now()/1000;
+      // Live values only. Anything cumulative comes from InfluxDB -- the
+      // browser cannot see PV generated before the page was opened, and a
+      // JS accumulator would drift whenever the tab is throttled.
+      if (dev === "inverter_1"){
+        S.inverter_1 = d;
+        // One overhead sample per inverter tick. Uses tick_ts, so the window
+        // is real seconds rather than message arrivals.
+        const bwx = S.bank ? (S.bank.power_w ?? 0) : null;
+        if (bwx !== null && !loadUnknown()){
+          const pvx = d.pv_total_w_corrected ?? d.pv_total_w ?? 0;
+          const inW  = pvx + Math.max(0, gridWatts()) + Math.max(0, -bwx);
+          const outW = loadWatts() + Math.max(0, bwx);
+          const t = d.tick_ts || Date.now()/1000;
+          ohBuf.push({ t, w: inW - outW });
+          ohBuf = ohBuf.filter(p => t - p.t <= CFG.ohWindowSec);
+        }
+      }
+      else if (dev === "bank") S.bank = d;
+      else if (dev === "forecast") S.forecast = d;
+      else S.packs[dev] = d;
+    }
+    setLink("on","live"); render();
+  });
+}
+
+setInterval(()=>{
+  if (lastMsg && Date.now()/1000-lastMsg > CFG.staleAfterSec)
+    setLink("stale", "stale · "+Math.round(Date.now()/1000-lastMsg)+"s");
+}, 5000);
+
+/* Pulls Influx org/bucket, site tz, and diagram scale from eg4poll's config
+   API (proxied by nginx at /api/site) -- replaces what used to be a
+   hand-maintained dashboard/config.js. No MQTT credentials to pull: this
+   page connects anonymously (see CFG.username/password above). influxOrg/
+   influxBucket come from this container's own env vars; tz/scale come from
+   the same config.yaml the Config page edits -- see app/webapp.py's
+   get_site(). Must resolve before loadHistory() runs: it needs real values,
+   not the placeholders CFG started with. */
+async function loadSiteConfig(){
+  const res = await fetch("/api/site");
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const site = await res.json();
+  CFG.influx.org = site.influxOrg; CFG.influx.bucket = site.influxBucket; CFG.influx.tz = site.tz;
+  if (site.scale) CFG.scale = site.scale;
+}
+
+(async function init(){
+  try {
+    await loadSiteConfig();
+  } catch (e) {
+    document.body.innerHTML =
+      '<pre style="color:#D2694A;font:13px monospace;padding:24px">'
+      + 'Could not load /api/site: ' + (e.message || e) + '\n\n'
+      + 'eg4poll may still be starting -- reload in a few seconds.</pre>';
+    throw e;
+  }
+  buildQueries();
+  connect();
+  loadHistory();
+  setInterval(loadHistory, CFG.influx.refreshSec*1000);
+  render();
+})();
+</script>
+</body>
+</html>

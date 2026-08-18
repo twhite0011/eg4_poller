@@ -12,32 +12,32 @@ collide. This is a cutover, not a parallel run.
 sudo systemctl stop solar-assistant     # verify the actual unit name
 ```
 
-## 1. Pin the serial device
+## 1. Serial devices need no manual setup
 
-With multiple USB adapters, `/dev/ttyUSB0` is not stable across reboots.
+`/dev/ttyUSB0` is not stable across reboots with multiple adapters, but
+`/dev/serial/by-id/...` already is -- it's kernel-maintained, keyed to each
+adapter's own USB serial number, no udev rule required. The container sees
+every by-id path (see `## Stack`, below); the Config page in the web UI is
+where you pick which one is which device. No `/etc/udev/rules.d/` file to
+write.
 
-```bash
-udevadm info -a -n /dev/ttyUSB0 | grep -E 'idVendor|idProduct|serial' | head -5
-```
-
-`/etc/udev/rules.d/99-rs485.rules`:
-
-```
-SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", ATTRS{serial}=="XXXX", SYMLINK+="rs485-inverter"
-```
-
-```bash
-sudo udevadm control --reload-rules && sudo udevadm trigger
-ls -l /dev/rs485-inverter
-```
-
-Cheap CH340 adapters often report no unique serial. If so, pin by USB port
-path instead using `KERNELS=="1-1.2"`.
+Cheap CH340 adapters sometimes report no unique serial, in which case
+by-id won't distinguish two of them -- if that happens, plug them in one
+at a time and match by insertion order, or pin one by USB port path with a
+udev rule as before (`KERNELS=="1-1.2"`).
 
 ## 2. Configure
 
-Edit `docker-compose.yml` for your MQTT host/credentials. Check the dialout
-GID on the host and match `group_add`:
+```bash
+cp .env.example .env    # then edit -- see Secrets, below
+```
+
+This covers infrastructure only -- MQTT/InfluxDB credentials, the deploy
+target, the dialout GID. Devices, poll rates, and site coordinates are
+configured through the web UI after the container is running (step 3),
+not here.
+
+Check the dialout GID on the host and match `DIALOUT_GID` in `.env`:
 
 ```bash
 getent group dialout       # usually 20 on RPi OS
@@ -48,6 +48,12 @@ getent group dialout       # usually 20 on RPi OS
 ```bash
 docker compose up --build
 ```
+
+Then open `http://<host>/config.html`, add your devices (name them,
+pick each one's USB adapter from what's actually plugged in, set poll
+rates), enter site coordinates, and Save -- the poller restarts itself to
+pick up the new config. `solar_dash.html` and `solar_settings.html` are
+linked from the same page once there's something to show.
 
 ## 4. Verify against Solar Assistant BEFORE removing it
 
@@ -84,9 +90,12 @@ not in SA.
 }
 ```
 
-`tick_ts` is the scheduled sampling instant, shared across all devices.
-`read_ts` is when this device's read finished. Align on `tick_ts` in Node-RED;
-use the delta to see how far apart the buses actually landed.
+`tick_ts` is the scheduled sampling instant, shared across every device on
+the same poll interval (see `poll_interval` on the Config page -- devices on
+different intervals get their own independent tick). `read_ts` is when this
+device's read finished. `app/derive.py`'s bank-join aligns packs on
+`tick_ts`; use the delta between `tick_ts` and `read_ts` to see how far
+apart the buses actually landed.
 
 Key set is fixed. Failed reads publish `null`, never a missing key.
 
@@ -127,9 +136,13 @@ Derived from `adamksmith/ESPHome-Projects` `Patched-Parent-Inverter.yaml`.
 
 ## Writes
 
-**Off by default.** `allow_writes: false` in config.yaml. A poller that can
-only read cannot misconfigure an inverter, which is the right default for
-something a compose file restarts unattended.
+Writes are an inherent part of the poller, not an opt-in mode. There is no
+config flag to arm the whole process -- safety is per-register instead: a
+register is writable only if the map says so, and only within the map's
+min/max, so what can be written and how far is fixed at the register-map
+level rather than toggled at runtime. The settings page also has its own
+client-side arm/disarm switch (with a 5-minute auto-disarm) as a UI-level
+guard against a stray click, independent of this.
 
 ### Command interface
 
@@ -145,9 +158,8 @@ result   energy/<device>/set/result
 A result is published for every command, including rejections, so a UI never
 has to guess whether a command was seen.
 
-`dry_run` works even when `allow_writes` is false -- it validates and encodes
-without touching the bus, so a value can be checked without the system being
-armed.
+`dry_run` validates and encodes a value without touching the bus, so it can
+be checked before it is sent for real.
 
 ### The guards, and why each exists
 
@@ -157,7 +169,16 @@ armed.
 | min/max from the map, not the request | a value the caller says is fine |
 | same `asyncio.Lock` as polling | a write interleaving with a read on the shared RS485 bus |
 | read-back and compare | a silent no-op, where the inverter accepts the frame and ignores the value |
-| `allow_writes` off by default | an unattended restart arming the system |
+| arm lock (`app/armlock.py`) | two browser tabs (or two people) both being able to send commands at once |
+
+The arm lock is real server-side mutual exclusion, not just a UI toggle:
+`solar_settings.html` generates a random session ID per page load and
+claims the lock via `POST /api/arm` before it will let you Save; the
+command handler in `Runner._commands` checks that ID against the current
+holder before executing anything that isn't a dry run, so a second tab
+gets rejected even if it also has the Arm button showing armed locally.
+The lock auto-expires after 5 minutes (in-memory, resets on a poller
+restart too), so a crashed or closed tab can't lock everyone else out.
 
 Ranges are deliberately tighter than the inverter's own. It will accept a
 discharge floor of 10%; the map's minimum is 15, so a typo of `1` cannot
@@ -189,43 +210,105 @@ convention says FC6 writes the register FC3 reads, but convention is not
 proof, and the read-back only tells you the register changed -- not that it is
 the register you meant.
 
+## Stack
+
+Everything runs from one `docker-compose.yml`, on one host, driven entirely
+through the web UI -- no Node-RED, no hand-edited device list.
+
+| service     | what it does                                                      |
+|-------------|--------------------------------------------------------------------|
+| `eg4poll`   | reads the devices; computes derived values (PV correction, energy integration, bank aggregation -- `app/derive.py`) and the solar forecast (`app/forecast.py`) in-process; publishes raw + derived state to MQTT; writes to InfluxDB directly; serves the Config API |
+| `mosquitto` | the broker. 1883 published to the LAN (for anything you wire up yourself externally), websockets internal-only |
+| `influxdb`  | local store for the dashboard -- 6-month retention, not a permanent record. Self-provisions its own org/bucket/username/password/admin token on first boot (`influx/entrypoint.sh`); nobody types any of them |
+| `nginx`     | serves `dashboard/` (including `config.html`), proxies `/mqtt`, `/influx`, and `/api` so the browser only needs one host |
+
+This image deliberately does not do Home Assistant discovery or export to
+any external/permanent store -- see `dashboard/config.html`'s "MQTT topics"
+panel. The broker grants anonymous clients read-only access to `energy/#`
+(`mosquitto/acl`'s rule with no `user` line -- writing anything still needs
+a real account) and is exposed on the LAN specifically so you can build
+that yourself, separately, with no credentials to configure on that end,
+if you want it (the way HA or a NAS recording pipeline would subscribe in).
+
+Devices are not declared in `docker-compose.yml` -- the container can see
+any USB-serial adapter (`device_cgroup_rules`, scoped to the ttyUSB/ttyACM
+device classes, not `privileged: true`), and the Config page
+(`dashboard/config.html` + `app/devconfig.py` + `app/webapp.py`) is where
+you assign one to each device slot. That assignment, plus poll rates and
+site coordinates, is runtime state on a Docker volume, not a tracked file
+-- `config/config.example.yaml` is the tracked template it seeds from on
+first boot. Saving a change restarts the poller to apply it; a broken
+config can't lock you out of the page that would let you fix it (see the
+comments in `app/webapp.py` for how).
+
+`mosquitto/` and `influx/` each hold a config file plus a small init script
+that provisions a secret Docker itself can't be handed directly -- see the
+comments in each for why.
+
 ## Layout
 
 ```
-eg4_6000xp/
+eg4_poller/
 ├── .dockerignore
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
-├── .env                  # secrets -- gitignored, NOT in the image
+├── .env                     # secrets -- gitignored, NOT in the image
 ├── .env.example
-├── nodered/              # transform + bank-join function nodes
-├── app/                  # code -- baked into the image
-│   ├── poller.py         # tick loop, MQTT, Modbus device
-│   ├── jbd.py            # JBD driver (Cubix)
-│   └── jbdtest.py        # standalone probe, not imported at runtime
-└── config/               # bind-mounted to /config
-    ├── config.yaml                  # REQUIRED mount; excluded from the image
-    └── eg4_6000xp_registers.yaml    # also ships in the image as a fallback
+├── app/                     # code -- baked into the image
+│   ├── poller.py            # tick loop, MQTT, device registry, Runner
+│   ├── jbd.py                # JBD driver (Cubix)
+│   ├── eg4ll.py               # EG4 LL-S driver
+│   ├── derive.py              # PV correction, energy integration, bank aggregation
+│   ├── forecast.py            # Open-Meteo solar forecast
+│   ├── influx_write.py        # line-protocol writer
+│   ├── devconfig.py           # device/site config: schema, load/save, USB discovery
+│   └── webapp.py               # Config API (device discovery, config read/write)
+├── config/                  # bind-mounted to /config
+│   ├── config.example.yaml         # TEMPLATE -- seeds the writable instance on first boot
+│   └── eg4_6000xp_registers.yaml   # also ships in the image as a fallback
+├── dashboard/                # solar_dash.html, solar_settings.html, config.html
+├── mosquitto/                 # broker config + ACL (no secrets -- passwd is generated)
+├── influx/                     # read-only-token provisioning script
+├── nginx/                       # reverse proxy config
+└── tools/                        # validate.py, check_secrets.py -- run by deploy.sh
 ```
 
 Code and config are deliberately separate: `app/` changes mean a rebuild,
-`config/` changes mean a restart.
-
-On the Pi you only need `docker-compose.yml` and `config/`.
+device/site config changes happen through the web UI and mean a restart.
 
 ## Secrets
 
-MQTT credentials live in `./.env`, which compose loads via `env_file`. It is
-excluded from the image by `.dockerignore` and from git by `.gitignore`.
+`SETTINGS_MQTT_PASS` is the only real credential left in `./.env`, which
+compose loads via `env_file`. It is excluded from the image by
+`.dockerignore` and from git by `.gitignore`.
 
 ```bash
-cp .env.example .env    # then edit
+cp .env.example .env    # then edit -- see that file for what each var seeds
 ```
 
-`config.yaml` references them as `${MQTT_HOST}` etc; the poller substitutes
-environment variables at load time. Nothing credential-bearing is baked into
-the image or committed.
+The `poller` MQTT account and InfluxDB both have no `.env` entries at all --
+their usernames, passwords, org, bucket, and (for InfluxDB) admin token are
+all generated inside their own containers on first boot
+(`mosquitto/init-passwd.sh`, `influx/entrypoint.sh`) and never typed by
+anyone. Neither is exposed to a browser, so there's nothing a human would
+ever need to see or rotate by hand; each secret leaves its generating
+container only over a Docker volume (`mqtt_shared`, `influx_shared`) rather
+than an environment variable, read back out by `app/poller.py`'s
+`_read_secret_file()`, and only by the container(s) that actually need to
+authenticate:
+- `eg4poll` reads the poller password to connect to `mosquitto` as itself,
+  and the Influx admin token to write derived values and forecast data.
+- `influx-init` reads the same Influx admin token once, to mint a separate
+  bucket-scoped *read-only* token for `nginx.conf` to inject into dashboard
+  queries (`influx/init-read-token.sh`).
+
+InfluxDB's admin *password* (as opposed to its token) is used once, by
+InfluxDB's own setup step, and then thrown away -- it's never written
+anywhere, so nobody (including this stack) can log into Influx's own UI
+with it.
+
+Nothing credential-bearing is baked into an image or committed.
 
 ## Register spaces are independent
 
@@ -286,28 +369,28 @@ publishes:
 }
 ```
 
-Map `tags` straight onto InfluxDB tags in Node-RED. **Query by `role`, not by
-`name`** -- a dashboard filtered on `role=battery` keeps working when you add
-a third pack, whereas one listing `cubix_1` and `lls_1` by name does not.
+`app/derive.py` maps `tags` straight onto InfluxDB tags. **Query by `role`,
+not by `name`** -- a dashboard filtered on `role=battery` keeps working when
+you add a third pack, whereas one listing `cubix_1` and `lls_1` by name does
+not.
 
-Adding a pack is then a config edit plus a compose device line. No code change.
+Adding a pack is a Config-page edit -- no docker-compose.yml change, no code
+change: plug in the adapter, add a device on the Config page, pick it from
+the discovered list, Save.
 
 ## Adding a pack
 
-Most of the stack auto-detects. Verified with three packs and no code change:
-`02_bank_join` finds batteries by `role` in flow context, weights bank SOC by
+Most of the stack auto-detects. Verified with three packs and no code
+change: `derive.bank_join` finds batteries by `role`, weights bank SOC by
 capacity, and generates a `share_<device>_pct` field per pack. The dashboard
 renders a card for any `energy/derived/<name>` that is not `inverter_1`,
 `bank`, or `forecast`.
 
-What does need editing:
+The one thing that's still a code edit, not a Config-page one:
 
 | file | change |
 |---|---|
-| `config/config.yaml` | a device block |
-| `docker-compose.yml` | the by-id device mapping |
-| `nodered/03_ha_discovery.js` | one line in `DEVICES` |
-| `dashboard/solar_dash.html` | one line in `MODELS` (cosmetic) |
+| `dashboard/solar_dash.html` | one line in `MODELS` (cosmetic -- the model string shown on the pack's card) |
 
 ### Each JBD pack needs its OWN adapter
 
@@ -341,6 +424,115 @@ full. Chaining the Cubix pair makes the inverter see 200 of 300 Ah instead of
   grid-charge-to-100% that resyncs the counters more important, not less.
 
 ## Changelog
+
+### 0.10.0
+* **The poller MQTT account is now fully internal.** `MQTT_USER`/`MQTT_PASS`
+  are gone from `.env` -- `mosquitto/init-passwd.sh` generates a random
+  password for the `poller` account on first boot and shares it with
+  `eg4poll` only via a Docker volume (`mqtt_shared`), the same pattern
+  `influx/entrypoint.sh` already used for the InfluxDB admin token. There
+  was never a reason for this one to be user-set: it's pure
+  container-to-container auth, never exposed to a browser, so `.env` now
+  holds exactly one real MQTT credential -- `SETTINGS_MQTT_PASS`, the only
+  account a browser ever authenticates as.
+* **MQTT read/write accounts split.** `solar_dash.html` and `config.html`
+  are pure-read and now connect with no MQTT account at all -- the existing
+  global anonymous-read rule already covered them, so the shared
+  `dashboard` account's password was doing nothing for those two pages.
+  Only `solar_settings.html`, which publishes inverter commands, still
+  authenticates -- to a renamed `settings` account (`SETTINGS_MQTT_PASS`,
+  replacing `DASHBOARD_MQTT_PASS`). That password is deliberately still not
+  meant to be a strong secret: its job is to stop an accidental or scripted
+  publish from the anonymous path from ever being mistaken for a real
+  command, not to resist a determined LAN attacker -- the ACL is what
+  actually scopes it.
+* **InfluxDB fully self-provisions** (`influx/entrypoint.sh`). Username,
+  password, org, bucket, and admin token used to come from
+  `DOCKER_INFLUXDB_INIT_*` values in `.env`; now `influxdb` generates all of
+  them itself on first boot, and none are typed by anyone. Only the admin
+  token leaves the container, over a Docker volume (`influx_shared`), never
+  as an environment variable -- `eg4poll` reads it via
+  `app/poller.py`'s `_read_influx_token()`, and `influx-init` uses it once to
+  mint the dashboard's separate read-only token, same as before. The admin
+  password is generated, used once by Influx's own setup, and then never
+  written anywhere -- not even this stack can log into Influx's own UI with
+  it. Verified live: builds and self-provisions with zero Influx-related
+  values in `.env`, the generated token authenticates and writes/queries
+  correctly, and a container restart does not regenerate or invalidate it.
+* **Real server-side arm lock** (`app/armlock.py`). "Arm" on the settings
+  page used to be client-side JS state only -- nothing stopped a second
+  browser tab from also arming and sending commands. Now `POST /api/arm`
+  claims an in-memory lock keyed by a random per-page-load session ID, and
+  `Runner._commands` checks that ID against the current holder before
+  executing any non-dry-run write. 5-minute auto-expiry, same as the UI
+  already had; dry-run validation stays exempt, since it never touches the
+  bus.
+* MQTT reads no longer need any account at all: `allow_anonymous true` plus
+  a global (no-`user`) `topic read energy/#` rule in `mosquitto/acl`. The
+  `external` account is gone -- whatever you wire up yourself (another
+  Node-RED instance, HA, a NAS pipeline) just subscribes with no
+  credentials. Writes still require a real, authenticated account
+  (`poller`, `dashboard`) -- verified live that an anonymous publish to a
+  command topic, and an anonymous publish impersonating the poller's own
+  state topic, are both silently dropped.
+* `tools/validate.py` now hard-fails if `config/config.example.yaml` (the
+  tracked template) ever contains a real device or real site coordinates --
+  a device's `port` is a USB adapter's own serial number, and this is the
+  one file in the repo that could carry one into a commit. The live config
+  itself was never at risk of this: it lives only in a Docker volume,
+  edited exclusively through the validated `/api/config` API, never on the
+  host and never in git.
+* `dashboard/config.js` (and the `config.example.js` template) removed
+  entirely, replaced by `GET /api/site`. It was a second, hand-maintained
+  copy of values that already lived somewhere else -- MQTT/Influx
+  credentials in `.env`, timezone in `config.yaml` -- eg4poll now just
+  serves its own environment and config back to the pages that need it.
+
+### 0.9.0
+* **The whole thing became one appliance-like web stack**, driven entirely
+  through the browser: a new Config tab (`dashboard/config.html`) picks
+  devices from whatever USB-serial adapters are actually plugged in
+  (`device_cgroup_rules`, not a docker-compose `devices:` list -- see
+  `## Stack`), sets per-device poll rates, and sets site coordinates for
+  the forecast. mosquitto, InfluxDB, and nginx joined the compose stack as
+  real, version-controlled services (`mosquitto/`, `influx/`, `nginx/`).
+* **Node-RED came in, then came back out.** It was bundled briefly to run
+  the derive/forecast logic, then dropped once its only remaining job
+  (HA discovery and external-Influx export are explicitly out of scope for
+  this image) was pure computation with nothing left to justify a second
+  language runtime. That logic -- PV correction, energy integration, bank
+  aggregation (`app/derive.py`), and the Open-Meteo forecast
+  (`app/forecast.py`) -- was ported into Python instead, faithfully
+  verified field-by-field against the live Node-RED flow's real output
+  before it was removed. Porting it surfaced two real bugs in the original
+  JS, both fixed rather than reproduced: a hardcoded `"inverter_1"` device
+  name in the bank-join cross-check (now found by role, since device names
+  are user-configurable), and a timezone bug in the forecast model (Open-
+  Meteo's local-time timestamps were parsed as the CONTAINER's own system
+  timezone, not the site's -- silently wrong by however many hours they
+  differ, for every deploy that didn't explicitly set the container's `TZ`
+  to match `SITE_TZ`, which was all of them).
+* Device config moved from a hand-edited, git-tracked `config.yaml` to
+  runtime state on a Docker volume, written by the web UI
+  (`app/devconfig.py`); `config/config.example.yaml` is the tracked
+  template it seeds from. A bad save is validated before it's ever written,
+  and the Config page stays reachable even if the on-disk config is
+  broken some other way -- see `app/webapp.py`.
+* `allow_writes` removed. It was meant as a temporary flag while the write
+  path was being verified; per-register `writable:`/min/max in the register
+  map was always the actual gate on what could be written, so the flag was
+  redundant once that verification was done.
+* `deploy.sh` now stages files before validating (`check_secrets.py` reads
+  `git ls-files`, which only sees tracked files -- validating before staging
+  meant a file's first commit was also the one commit that skipped the
+  scan) and no longer deploys the dashboard to a separate nginx host, since
+  nginx is now part of the same stack.
+* Fixed: `_commands()`'s command listener blocked on `async for msg in
+  mqtt.messages`, which nothing about a stop request could ever interrupt
+  -- `docker stop`/SIGTERM would hang until Docker's kill timeout forced
+  it. `Runner.run()` now races every task against the stop signal and
+  actually cancels them, rather than waiting for each to notice
+  cooperatively.
 
 ### 0.8.1
 * **The clock decode was never actually in the build.** The edit that added it

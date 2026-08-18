@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inverter settings — angrycat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=Barlow:wght@400;500&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0F1519; --panel:#161F25; --panel-2:#1B262D;
+  --rule:#2A3841; --rule-lit:#3B4E5A;
+  --text:#E4EBEF; --muted:#74868F; --dim:#4C5C65;
+  --pv:#E8B33C; --batt:#3FA7A0; --warn:#D2694A; --ok:#4E9E6A;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --cond:"Barlow Condensed",system-ui,sans-serif;
+  --body:"Barlow",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text)}
+body{font-family:var(--body);font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;min-height:100vh;padding:clamp(12px,2vw,26px)}
+.wrap{max-width:860px;margin:0 auto}
+header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;
+  padding-bottom:9px;margin-bottom:14px;border-bottom:1px solid var(--rule)}
+h1{font-family:var(--cond);font-weight:600;font-size:clamp(19px,2.4vw,25px);
+  letter-spacing:.14em;text-transform:uppercase;margin:0}
+h1 span{color:var(--dim);font-weight:400}
+a.back{font-family:var(--mono);font-size:11px;color:var(--muted);text-decoration:none}
+a.back:hover{color:var(--text)}
+.link{margin-left:auto;display:flex;align-items:center;gap:9px;
+  font-family:var(--mono);font-size:11px;color:var(--muted)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--dim)}
+.dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(78,158,106,.16)}
+.dot.stale{background:var(--warn);box-shadow:0 0 0 3px rgba(210,105,74,.16)}
+
+/* arm banner */
+.arm{background:var(--panel);border:1px solid var(--warn);border-radius:3px;
+  padding:13px 16px;margin-bottom:14px;display:flex;align-items:center;gap:14px;
+  flex-wrap:wrap}
+.arm.armed{border-color:var(--ok)}
+.arm .t{font-family:var(--cond);font-size:13px;letter-spacing:.14em;
+  text-transform:uppercase;font-weight:600}
+.arm .d{font-family:var(--mono);font-size:11px;color:var(--muted);flex:1;min-width:220px}
+button{font-family:var(--cond);font-size:12.5px;letter-spacing:.12em;
+  text-transform:uppercase;font-weight:600;background:var(--panel-2);
+  color:var(--text);border:1px solid var(--rule-lit);border-radius:2px;
+  padding:8px 15px;cursor:pointer}
+button:hover:not(:disabled){border-color:var(--text)}
+button:disabled{opacity:.35;cursor:not-allowed}
+button.go{border-color:var(--ok);color:var(--ok)}
+button.danger{border-color:var(--warn);color:var(--warn)}
+
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:3px;
+  padding:clamp(12px,1.8vw,18px);margin-bottom:14px}
+.card > h2{font-family:var(--cond);font-size:12px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--muted);margin:0 0 4px;font-weight:600;
+  display:flex;align-items:center;gap:9px}
+.card > h2 .num{font-family:var(--mono);font-size:10.5px;letter-spacing:0;
+  background:var(--panel-2);border:1px solid var(--rule-lit);border-radius:2px;
+  padding:1px 6px;color:var(--pv);font-weight:500}
+.card > .sub{font-family:var(--mono);font-size:10.5px;color:var(--dim);margin-bottom:14px}
+
+.setting{display:grid;grid-template-columns:1fr auto 16px auto;gap:10px;
+  align-items:center;padding:9px 0;border-top:1px solid var(--rule)}
+.setting:first-of-type{border-top:none}
+.setting .name{font-family:var(--cond);font-size:13.5px;letter-spacing:.07em;
+  text-transform:uppercase}
+.setting .meta{font-family:var(--mono);font-size:10px;color:var(--dim);margin-top:2px}
+.tin{display:inline-flex;align-items:center;gap:0;background:var(--bg);
+  border:1px solid var(--rule-lit);border-radius:2px;padding:0 6px}
+.tin input{width:26px!important;border:none!important;background:none!important;
+  padding:6px 2px!important;text-align:center!important}
+.tin input:focus{outline:none;color:var(--pv)}
+.tin .cln{font-family:var(--mono);font-size:13.5px;color:var(--dim);
+  user-select:none;pointer-events:none}
+.tin.dirty{border-color:var(--pv)}
+.tin.dirty input{color:var(--pv)}
+.win{display:grid;
+  grid-template-columns:1fr auto auto auto auto auto 16px;
+  gap:9px;align-items:center;padding:9px 0;border-top:1px solid var(--rule)}
+.win .cur{min-width:44px}
+.win .arrow{font-family:var(--mono);font-size:11px;color:var(--dim)}
+
+.setting input{font-family:var(--mono);font-size:13.5px;width:96px;text-align:right;
+  background:var(--bg);color:var(--text);border:1px solid var(--rule-lit);
+  border-radius:2px;padding:6px 9px}
+.setting input:disabled{opacity:.45}
+.setting input.dirty{border-color:var(--pv);color:var(--pv)}
+.setting .cur{font-family:var(--mono);font-size:11px;color:var(--muted);
+  min-width:64px;text-align:right}
+.ro{opacity:.5}
+.ro .name::after{content:" · read-only";font-family:var(--mono);font-size:9.5px;
+  letter-spacing:0;text-transform:none;color:var(--dim)}
+
+/* per-row status: spinner, tick, cross */
+.st{width:16px;height:16px;flex:none;display:inline-block;position:relative}
+.st.spin::after{content:"";position:absolute;inset:1px;border-radius:50%;
+  border:2px solid var(--rule-lit);border-top-color:var(--pv);
+  animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.st.ok::after{content:"";position:absolute;left:5px;top:1px;width:5px;height:10px;
+  border:solid var(--ok);border-width:0 2px 2px 0;transform:rotate(42deg)}
+.st.fail::after,.st.fail::before{content:"";position:absolute;left:7px;top:2px;
+  width:2px;height:12px;background:var(--warn)}
+.st.fail::after{transform:rotate(45deg)} .st.fail::before{transform:rotate(-45deg)}
+.setting.row-fail input{border-color:var(--warn);color:var(--warn)}
+.setting.row-ok .cur{color:var(--ok)}
+.setting.busy input{opacity:.5}
+
+.cardfoot{display:flex;align-items:center;gap:10px;margin-top:13px;padding-top:12px;
+  border-top:1px solid var(--rule)}
+.cardfoot .n{font-family:var(--mono);font-size:11px;color:var(--pv);flex:1}
+.cardfoot button{padding:6px 13px;font-size:11.5px}
+.card.dirty{border-color:var(--pv)}
+.card.dirty > h2 .num{border-color:var(--pv)}
+
+.log{font-family:var(--mono);font-size:11px;line-height:1.65;max-height:230px;
+  overflow:auto;color:var(--muted)}
+.log .ok{color:var(--ok)} .log .err{color:var(--warn)} .log .t{color:var(--dim)}
+
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--warn);
+  border-radius:3px;padding:20px;max-width:480px;font-family:var(--body)}
+dialog::backdrop{background:rgba(0,0,0,.7)}
+dialog h3{font-family:var(--cond);letter-spacing:.14em;text-transform:uppercase;
+  margin:0 0 12px;font-size:14px}
+dialog .chg{font-family:var(--mono);font-size:12.5px;background:var(--bg);
+  border:1px solid var(--rule);border-radius:2px;padding:11px;margin-bottom:14px}
+dialog .chg div{padding:2px 0}
+dialog .row{display:flex;gap:10px;justify-content:flex-end}
+</style>
+</head>
+<body><div class="wrap">
+
+<header>
+  <h1>Settings <span>/ 6000XP</span></h1>
+  <a class="back" href="solar_dash.html">&larr; dashboard</a>
+  <a class="back" href="config.html">config</a>
+  <div class="link"><span class="dot" id="dot"></span><span id="linkTxt">connecting</span></div>
+</header>
+
+<div class="arm" id="armBar">
+  <span class="t" id="armT">Read-only</span>
+  <span class="d" id="armD">Arm to enable writing. Values can be validated without arming.</span>
+  <button id="armBtn">Arm</button>
+</div>
+
+<div id="groups"></div>
+
+<div class="card">
+  <h2>Activity</h2>
+  <div class="log" id="log"></div>
+</div>
+
+</div>
+
+<dialog id="confirm">
+  <h3>Confirm write</h3>
+  <div class="chg" id="cfChg"></div>
+  <p style="font-size:13px;color:var(--muted);margin:0 0 16px" id="cfNote"></p>
+  <div class="row">
+    <button id="cfCancel">Cancel</button>
+    <button id="cfDry">Validate only</button>
+    <button class="danger" id="cfGo">Write</button>
+  </div>
+</dialog>
+
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script>
+const CFG = {
+  broker: (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/mqtt",
+  // Filled in from /api/site (eg4poll's config API, proxied by nginx) below,
+  // before connect() runs. This is the ONLY page that authenticates --
+  // solar_dash.html and config.html are pure-read and connect anonymously.
+  // Sourced from this container's own SETTINGS_MQTT_PASS env var rather
+  // than a hand-maintained file. See the ACL this account needs (write on
+  // energy/+/set -- read comes free from the global anonymous rule) in
+  // mosquitto/acl.
+  username: null,
+  password: null,
+  device: "inverter_1",
+  stateTopic: "energy/derived/inverter_1",
+  setTopic:   "energy/inverter_1/set",
+  resultTopic:"energy/inverter_1/set/result",
+};
+
+/* The UI mirrors the register map's limits. The poller validates
+   independently against its own copy -- this is convenience, not security.
+   A value that slips past here still gets rejected on the bus side. */
+/* Grouped and ordered by the number on the inverter's own LCD menu
+   (manual v1.1.7, section 11), so the page reads like the panel. If a value
+   looks wrong on screen you know exactly which menu to check.
+
+   Ranges mirror the manual. The poller validates independently against its
+   own register map -- this is convenience, not security. */
+const GROUPS = [
+  { num: 1, title: "Date & Time", sub: "Inverter clock. AC charge windows run on this, not on wall time.",
+    clock: true, rows: [] },
+
+  { num: 6, title: "Charge current", sub: "Ic — maximum charge current",
+    rows: [
+      ["set_charge_current_limit","Total charge limit","A",0,125,10,
+       "The LCD steps this in 10 A increments. Whether the register itself quantises is unresolved — try 87 and the read-back will tell you."],
+      ["set_ac_charge_current","AC charge current","A",0,125,1,
+       "Manual range 0–125 A, default 30. Requested only — the BMS caps this over CAN."],
+    ]},
+
+  { num: 12, title: "Discharge cutoff", sub: "Eod — end of discharge",
+    rows: [
+      ["set_eod_pct","End of discharge","%",15,90,1,
+       "Manual allows down to the setting-11 cutoff; floored at 15 here. Sourced from the Cubix, the comms master."],
+    ]},
+
+  { num: 14, title: "AC charge", sub: "Grid charging: SOC thresholds and up to three time windows",
+    rows: [
+      ["set_ac_charge_start_soc","Start SOC","%",1,90,1,"Manual range 1–90%."],
+      ["set_ac_charge_stop_soc","End SOC","%",20,100,1,
+       "Manual range 20–100%. 100 lets the pack reach full, which is what resyncs the counters."],
+      ["set_ac_charge_start_1","Window 1 start","",0,0,0,""],
+      ["set_ac_charge_end_1","Window 1 end","",0,0,0,""],
+      ["set_ac_charge_start_2","Window 2 start","",0,0,0,""],
+      ["set_ac_charge_end_2","Window 2 end","",0,0,0,""],
+      ["set_ac_charge_start_3","Window 3 start","",0,0,0,""],
+      ["set_ac_charge_end_3","Window 3 end","",0,0,0,""],
+    ]},
+
+  { num: 15, title: "AC input load timer", sub: "\"AC First\" — windows where the grid powers the load directly",
+    rows: [
+      ["set_ac_first_start_1","Window 1 start","",0,0,0,""],
+      ["set_ac_first_end_1","Window 1 end","",0,0,0,""],
+      ["set_ac_first_start_2","Window 2 start","",0,0,0,""],
+      ["set_ac_first_end_2","Window 2 end","",0,0,0,""],
+      ["set_ac_first_start_3","Window 3 start","",0,0,0,""],
+      ["set_ac_first_end_3","Window 3 end","",0,0,0,""],
+    ]},
+
+  { num: 25, title: "Generator charge", sub: "Unused unless a generator is wired to the GEN input",
+    rows: [
+      ["set_gen_start_soc","Start SOC","%",1,90,1,"Manual range 1–90%."],
+      ["set_gen_stop_soc","End SOC","%",20,100,1,"Manual range 20–100%."],
+    ]},
+];
+
+/* Read from the inverter but not writable here. Shown so the page reflects
+   the whole mapped picture rather than quietly omitting things. */
+const READONLY = [];
+
+const $ = id => document.getElementById(id);
+let armed = false, state = {}, client = null, pending = null;
+let queue = [], awaiting = null, dryRun = false, busy = false, timer = null;
+let anyDirty = false, awaitingKey = null, awaitingVal = null;
+
+/* Per-row lifecycle. The input box holds the value you WANT; the `cur` span
+   holds what the inverter actually reports. An empty box means nothing
+   pending, which is why a confirmed write clears it rather than leaving a
+   value that merely looks authoritative.
+
+     idle -> dirty -> sending -> awaiting -> ok (clears) | fail
+                                    ^
+                        written and read back by the poller, now
+                        waiting for a poll to show the new value
+*/
+const ST = {};                    // key -> {state, want, since}
+const inputs = {}, keyGroup = {};
+const CONFIRM_MS = 20000;         // poll is 4 s; 20 s is generous
+
+function log(msg, cls=""){
+  const el = $("log");
+  const t = new Date().toLocaleTimeString();
+  el.insertAdjacentHTML("afterbegin",
+    `<div><span class="t">${t}</span> <span class="${cls}">${msg}</span></div>`);
+}
+
+function timeShim(key){
+  const hh = $("hh_"+key), mm = $("mm_"+key), box = $("tin_"+key);
+  const pad = v => String(v).padStart(2, "0");
+  return {
+    _hh: hh, _mm: mm,
+    get value(){
+      const a = hh.value.trim(), b = mm.value.trim();
+      if (!a && !b) return "";
+      return `${pad(a || 0)}:${pad(b || 0)}`;
+    },
+    set value(v){
+      if (!v){ hh.value = ""; mm.value = ""; return; }
+      const [a, b] = String(v).split(":");
+      hh.value = pad(a ?? 0); mm.value = pad(b ?? 0);
+    },
+    set placeholder(v){
+      const [a, b] = String(v ?? "").split(":");
+      hh.placeholder = a ?? "--"; mm.placeholder = b ?? "--";
+    },
+    set disabled(v){ hh.disabled = v; mm.disabled = v; },
+    get disabled(){ return hh.disabled; },
+    classList: {
+      add:    c => box.classList.add(c),
+      remove: c => box.classList.remove(c),
+      toggle: (c, v) => box.classList.toggle(c, v),
+      contains: c => box.classList.contains(c),
+    },
+    closest: () => box.closest ? box.closest(".win, .setting") : null,
+    addEventListener(ev, fn){ hh.addEventListener(ev, fn); mm.addEventListener(ev, fn); },
+    focusEls: [hh, mm],
+  };
+}
+
+/* Two 2-digit boxes with a fixed colon between them. A single HH:MM text
+   field means retyping the whole thing to change the hour, and the colon is
+   just another character you can delete. */
+function timeBox(key){
+  return `<span class="tin" id="tin_${key}">
+    <input id="hh_${key}" type="text" inputmode="numeric" maxlength="2"
+           placeholder="--" disabled>
+    <span class="cln">:</span>
+    <input id="mm_${key}" type="text" inputmode="numeric" maxlength="2"
+           placeholder="--" disabled>
+  </span>`;
+}
+
+function windowHtml(startKey, endKey, label){
+  // Each half gets its own `cur` span. paint() writes to cur_<key> for every
+  // entry in `inputs`, and a missing one is not a cosmetic gap --
+  // getElementById returns null and paint() throws part-way through, taking
+  // everything after it (the clock, among other things) with it.
+  return `<div class="win" data-key="${startKey}">
+    <div><div class="name">${label}</div>
+      <div class="meta">${startKey.replace(/_start_\d$/,"")} · 24-hour</div></div>
+    <span class="cur" id="cur_${startKey}">—</span>
+    ${timeBox(startKey)}
+    <span class="arrow">to</span>
+    <span class="cur" id="cur_${endKey}">—</span>
+    ${timeBox(endKey)}
+    <span class="st" id="st_${startKey}"></span>
+  </div>`;
+}
+
+function rowHtml([key,name,unit,min,max,step,note]){
+      const isTime = !unit;
+      // Times are TEXT inputs, not type="time". A native time picker renders
+      // in the browser's locale -- 12-hour with AM/PM in en-US -- while the
+      // 6000XP is 24-hour throughout. Matching the panel matters more than
+      // getting a picker.
+      return `<div class="setting" data-key="${key}">
+        <div><div class="name">${name}</div>
+          <div class="meta">${key}${isTime?" · 00:00–23:59":` · ${min}–${max} ${unit}`}${note?" · "+note:""}</div></div>
+        <span class="cur" id="cur_${key}">—</span>
+        <span class="st" id="st_${key}"></span>
+        <input id="in_${key}" ${isTime
+          ? 'type="text" inputmode="numeric" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" placeholder="HH:MM" maxlength="5"'
+          : `type="number" min="${min}" max="${max}" step="${step}"`}
+          title="Leave blank to keep the current value" disabled>
+      </div>`;
+}
+
+/* Pair up *_start_N / *_end_N into a single row; everything else renders
+   normally. */
+function renderRows(g){
+  const out = [], done = new Set();
+  for (const r of g.rows){
+    const key = r[0];
+    if (done.has(key)) continue;
+    const m = key.match(/^(.*)_start_(\d)$/);
+    if (m){
+      const endKey = `${m[1]}_end_${m[2]}`;
+      if (g.rows.some(x => x[0] === endKey)){
+        out.push(windowHtml(key, endKey, `Window ${m[2]}`));
+        done.add(key); done.add(endKey);
+        continue;
+      }
+    }
+    out.push(rowHtml(r));
+  }
+  return out.join("");
+}
+
+function build(){
+  const host = $("groups");
+  host.innerHTML = GROUPS.map(g => {
+    const ro = READONLY.filter(r => r[0] === g.num).map(([,k,n,u,note]) =>
+      `<div class="setting ro"><div><div class="name">${n}</div>
+        <div class="meta">${k}${note?" · "+note:""}</div></div>
+       <span class="cur" id="cur_${k}">—</span><span class="st"></span>
+       <input disabled></div>`).join("");
+    const clock = g.clock ? `
+      <div class="setting">
+        <div><div class="name">Inverter clock</div>
+          <div class="meta">registers 12/13/14 · packed, written together</div></div>
+        <span class="cur" id="cur_inverter_time">—</span>
+        <span class="st" id="st_sync_time"></span>
+        <button id="syncBtn" disabled>Sync to now</button>
+      </div>
+      <div class="setting">
+        <div><div class="name">Drift vs host</div>
+          <div class="meta">these clocks wander; the charge windows follow the inverter's</div></div>
+        <span class="cur" id="cur_drift">—</span><span></span><span></span>
+      </div>` : "";
+    const foot = g.rows.length ? `
+      <div class="cardfoot">
+        <span class="n" id="n_${g.num}"></span>
+        <button id="disc_${g.num}" disabled>Discard</button>
+        <button id="save_${g.num}" disabled>Save</button>
+      </div>` : "";
+    return `<div class="card" id="card_${g.num}">
+      <h2><span class="num">${g.num}</span> ${g.title}</h2>
+      <div class="sub">${g.sub}</div>
+      ${clock}${renderRows(g)}${ro}${foot}
+    </div>`;
+  }).join("");
+
+  for (const g of GROUPS){
+    for (const [key, , unit] of g.rows){
+      const isTime = !unit;
+      // A time key has no single input element. Wrap the hh/mm pair in a
+      // shim exposing .value, .placeholder, .disabled and classList, so
+      // dirty-tracking, paint() and the state machine need no special cases.
+      const el = isTime ? timeShim(key) : $("in_"+key);
+      inputs[key] = el;
+      keyGroup[key] = g.num;
+      // Editing only marks the field. Nothing reaches the inverter until
+      // Save, so a value can be typed, reconsidered and corrected freely.
+      el.addEventListener("input",  () => onEdit(key));
+      el.addEventListener("change", () => onEdit(key));
+
+      if (isTime){
+        const [hh, mm] = el.focusEls;
+        const clamp2 = (inp, hi) => {
+          let v = inp.value.replace(/\D/g, "").slice(0, 2);
+          if (v !== "" && +v > hi) v = String(hi);
+          inp.value = v;
+        };
+        hh.addEventListener("input", () => {
+          clamp2(hh, 23);
+          // Two digits means the hour is done; jump to minutes rather than
+          // making the user reach for tab.
+          if (hh.value.length === 2) mm.focus();
+          onEdit(key);
+        });
+        mm.addEventListener("input", () => { clamp2(mm, 59); onEdit(key); });
+        // Pad on the way out so 7 becomes 07 and the value is always HH:MM.
+        for (const inp of [hh, mm])
+          inp.addEventListener("blur", () => {
+            if (inp.value.length === 1) inp.value = "0" + inp.value;
+            onEdit(key);
+          });
+        // Editing one half means the other must be present. Seed it from the
+        // live value rather than silently writing 00.
+        for (const [a, b] of [[hh, mm], [mm, hh]])
+          a.addEventListener("focus", () => {
+            if (!b.value && state[key]){
+              const parts = String(state[key]).split(":");
+              b.value = (b === hh ? parts[0] : parts[1]) ?? "";
+            }
+          });
+      } else {
+        // A number input that is empty starts its stepper at 0, so the first
+        // click on the up arrow jumps to 0 instead of incrementing. Seed the
+        // box from the live value on focus; it matches, so it is not dirty.
+        el.addEventListener("focus", () => {
+          if (el.value === "" && state[key] != null) el.value = String(state[key]);
+        });
+      }
+    }
+    if (!g.rows.length) continue;
+    $("save_"+g.num).addEventListener("click", () => saveGroup(g));
+    $("disc_"+g.num).addEventListener("click", () => discardGroup(g));
+  }
+  const sb = $("syncBtn");
+  if (sb) sb.addEventListener("click", () => {
+    pending = { key: "sync_time", value: null };
+    $("cfChg").innerHTML = `<div><b>Set inverter clock</b></div>
+      <div style="color:var(--muted)">registers 12 / 13 / 14</div>
+      <div style="margin-top:6px">${state.inverter_time || "unknown"} &rarr;
+        <b style="color:var(--pv)">${new Date().toLocaleString('sv-SE').slice(0,19)}</b></div>`;
+    $("cfNote").textContent =
+      "All three registers are written together — a half-applied clock is worse than a drifted one.";
+    $("confirm").showModal();
+  });
+}
+
+function paint(){
+  for (const [key, el] of Object.entries(inputs)){
+    const v = state[key];
+    const cur = $("cur_"+key);
+    // Guard rather than assume. A row added without its cur span would
+    // otherwise throw here and silently kill everything later in paint().
+    if (!cur || !el) continue;
+    if (v === undefined || v === null){ cur.textContent = "—"; continue; }
+    cur.textContent = v;
+    el.placeholder = String(v);     // the box shows what you WANT, not what is
+
+    // A write is confirmed when a poll actually reports the new value --
+    // not merely when the poller's read-back succeeded. That is the whole
+    // point of the awaiting state.
+    const s = ST[key];
+    if (s?.state === "awaiting"){
+      if (String(v) === String(s.want)){
+        setState(key, "ok");
+        el.value = ""; el.classList.remove("dirty");
+        log(`${key} confirmed by poll: ${v}`, "ok");
+        setTimeout(() => { if (ST[key]?.state === "ok") setState(key, "idle"); }, 4000);
+      } else if (Date.now() - s.since > CONFIRM_MS){
+        setState(key, "fail");
+        log(`${key}: written, but the inverter still reports ${v} after ${
+          Math.round(CONFIRM_MS/1000)}s`, "err");
+      }
+    }
+    renderRow(key);
+  }
+  GROUPS.forEach(g => refreshGroup(g.num));
+  for (const [,k] of READONLY){
+    const c = $("cur_"+k);
+    if (c && state[k] !== undefined) c.textContent = state[k];
+  }
+  const ct = $("cur_inverter_time");
+  if (ct) ct.textContent = state.inverter_time || "—";
+  const cd = $("cur_drift");
+  if (cd){
+    const d = state.inverter_clock_drift_s;
+    cd.textContent = d == null ? "—"
+      : (Math.abs(d) < 60 ? `${d.toFixed(0)} s` : `${(d/60).toFixed(1)} min`);
+    cd.style.color = (d != null && Math.abs(d) > 120) ? "var(--warn)" : "";
+  }
+  const sb = $("syncBtn");
+  if (sb) sb.disabled = !armed;
+}
+
+function setState(key, s, want){
+  if (s === "idle") delete ST[key];
+  else ST[key] = { state: s, want: want ?? ST[key]?.want, since: Date.now() };
+  renderRow(key);
+}
+
+function renderRow(key){
+  const el = inputs[key];
+  const st = $("st_"+key);
+  const row = el && el.closest ? el.closest(".win, .setting") : null;
+  const s = ST[key]?.state;
+  if (st) st.className = "st" +
+    (s === "sending" || s === "awaiting" ? " spin" : s === "ok" ? " ok" : s === "fail" ? " fail" : "");
+  if (row){
+    row.classList.toggle("row-fail", s === "fail");
+    row.classList.toggle("row-ok",   s === "ok");
+    row.classList.toggle("busy",     s === "sending" || s === "awaiting");
+  }
+  if (el) el.disabled = !armed || s === "sending" || s === "awaiting";
+}
+
+function dirtyIn(g){
+  // A row is pending if the box has something in it that differs from the
+  // live value. Blank means "leave alone".
+  return g.rows.map(r => r[0]).filter(k => {
+    const v = inputs[k]?.value.trim();
+    return v && v !== String(state[k] ?? "");
+  });
+}
+
+function onEdit(key){
+  const el = inputs[key];
+  const v = el.value.trim();
+  const changed = v && v !== String(state[key] ?? "");
+  el.classList.toggle("dirty", !!changed);
+  // Typing again after a failure clears the error mark.
+  if (ST[key]?.state === "fail" || ST[key]?.state === "ok") setState(key, "idle");
+  refreshGroup(keyGroup[key]);
+}
+
+function refreshGroup(num){
+  const g = GROUPS.find(x => x.num === num);
+  if (!g || !g.rows.length) return;
+  const d = dirtyIn(g);
+  const can = d.length > 0;
+  $("save_"+num).disabled = !can || !armed || busy;
+  $("disc_"+num).disabled = !can || busy;
+  $("save_"+num).className = (can && armed) ? "go" : "";
+  $("n_"+num).textContent = can
+    ? `${d.length} unsaved change${d.length>1?"s":""}` + (armed ? "" : " — arm to save")
+    : "";
+  $("card_"+num).classList.toggle("dirty", can);
+  anyDirty = GROUPS.some(x => x.rows.length && dirtyIn(x).length);
+}
+
+function discardGroup(g){
+  for (const [key] of g.rows) revert(key);
+  refreshGroup(g.num);
+  log(`discarded changes in setting ${g.num}`);
+}
+
+function saveGroup(g){
+  const d = dirtyIn(g);
+  if (!d.length) return;
+  queue = d.map(k => ({ key: k, value: inputs[k].value, was: state[k] }));
+  pending = { group: g.num };
+  const meta = k => g.rows.find(r => r[0] === k);
+  $("cfChg").innerHTML =
+    `<div><b>Setting ${g.num} — ${g.title}</b></div>
+     <div style="color:var(--muted);margin-bottom:6px">${d.length} change${d.length>1?"s":""}</div>` +
+    d.map(k => `<div>${meta(k)[1]}: ${state[k] ?? "—"} &rarr;
+      <b style="color:var(--pv)">${inputs[k].value}</b> ${meta(k)[2]}</div>`).join("");
+  $("cfNote").textContent =
+    "Written one at a time. Each is validated against the poller's register map, " +
+    "written, then read back to confirm it stuck. A failure stops the rest.";
+  $("confirm").showModal();
+}
+
+function send(dry){
+  $("confirm").close();
+  if (pending && pending.key === "sync_time"){
+    queue = [{ key: "sync_time", value: null }];
+  }
+  if (!queue.length) return;
+  dryRun = dry; busy = true;
+  GROUPS.forEach(g => refreshGroup(g.num));
+  next();
+}
+
+/* One command at a time, waiting for each result. Firing them all at once
+   would work -- the poller handles commands sequentially -- but then a
+   failure part-way through leaves you guessing which ones landed. */
+function next(){
+  if (!queue.length){
+    busy = false; awaiting = null; awaitingKey = null;
+    GROUPS.forEach(g => refreshGroup(g.num));
+    return;
+  }
+  const item = queue.shift();
+  const rid = Math.random().toString(36).slice(2,10);
+  awaiting = rid; awaitingKey = item.key; awaitingVal = item.value;
+  if (!dryRun) setState(item.key, "sending", item.value);
+  client.publish(CFG.setTopic, JSON.stringify(
+    { key: item.key, value: item.value, dry_run: dryRun, request_id: rid, session_id: sessionId }));
+  log(`${dryRun?"validate":"write"} ${item.key}${item.value!=null?" = "+item.value:""}`);
+  // If the poller never answers, do not wedge the UI.
+  clearTimeout(timer);
+  timer = setTimeout(() => {
+    if (awaiting === rid){
+      log(`${item.key}: no response after 8 s`, "err");
+      setState(item.key, "fail");
+      abort();
+    }
+  }, 8000);
+}
+
+function abort(){
+  queue = []; busy = false; awaiting = null; awaitingKey = null; clearTimeout(timer);
+  GROUPS.forEach(g => refreshGroup(g.num));
+}
+
+function revert(key){
+  const el = inputs[key];
+  if (!el) return;
+  el.value = "";                    // blank = nothing pending
+  el.classList.remove("dirty");
+}
+
+/* ---------- MQTT ---------- */
+function connect(){
+  client = mqtt.connect(CFG.broker, {
+    username: CFG.username || undefined,
+    password: CFG.password || undefined,
+    reconnectPeriod: 4000,
+  });
+  client.on("connect", () => {
+    $("dot").className = "dot on"; $("linkTxt").textContent = "live";
+    client.subscribe(CFG.stateTopic);
+    client.subscribe(CFG.resultTopic);
+  });
+  client.on("close",  () => { $("dot").className="dot stale"; $("linkTxt").textContent="offline"; });
+  client.on("error",  e => log("mqtt: "+(e.message||e), "err"));
+
+  client.on("message", (topic, buf) => {
+    let d; try { d = JSON.parse(buf.toString()); } catch { return; }
+
+    if (String(topic) === CFG.stateTopic){ state = d; paint(); return; }
+
+    // write result
+    if (d.request_id && d.request_id !== awaiting) return;   // stale
+    clearTimeout(timer);
+
+    if (d.dry_run){
+      log(`validated ${d.key}${d.raw!=null?` → raw ${d.raw} @ reg ${d.addr}`:""}`, "ok");
+      next(); return;
+    }
+    if (d.ok && d.key === "sync_time"){
+      log(`inverter clock set to ${d.set_to}`, "ok");
+      setState("sync_time", "ok");
+      setTimeout(() => setState("sync_time", "idle"), 4000);
+      next(); return;
+    }
+    if (d.ok){
+      log(`${d.key}: ${d.before} → ${d.after} · written`, "ok");
+      // Written and read back -- but hold the spinner until a poll shows the
+      // new value. The read-back proves the register changed; the poll proves
+      // the running system agrees.
+      setState(d.key, "awaiting", awaitingVal);
+      next();
+    } else {
+      log(`${d.key || "command"} REJECTED: ${d.error}`, "err");
+      // Keep the value in the box on rejection -- it is usually a range
+      // problem the user wants to correct, not discard.
+      if (d.key) setState(d.key, "fail");
+      // Stop rather than continue: if one value was rejected the rest of the
+      // batch may depend on it, and half-applying a set of thresholds is
+      // worse than applying none.
+      if (queue.length) log(`${queue.length} remaining change(s) not sent`, "err");
+      abort();
+    }
+  });
+}
+
+/* ---------- arm ----------
+   Real, server-side mutual exclusion (app/armlock.py) -- not just a UI
+   toggle. Arming here is a POST to /api/arm that the poller's command
+   handler actually checks before executing any non-dry-run write, so a
+   second tab (anywhere, any device) cannot also be armed at the same time.
+   sessionId is generated once per page load and sent with every arm/disarm
+   call and every write command. */
+const sessionId = crypto.randomUUID();
+
+function updateArmUI(){
+  $("armBar").classList.toggle("armed", armed);
+  $("armT").textContent = armed ? "Armed" : "Read-only";
+  $("armD").textContent = armed
+    ? "Writes enabled. Every change is validated against the register map, written, and read back."
+    : "Arm to enable writing. Values can be validated without arming.";
+  $("armBtn").textContent = armed ? "Disarm" : "Arm";
+  $("armBtn").className = armed ? "go" : "";
+  paint();
+  GROUPS.forEach(g => refreshGroup(g.num));
+}
+
+async function doArm(){
+  $("armBtn").disabled = true;
+  try {
+    const res = await fetch("/api/arm", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({session_id: sessionId}),
+    });
+    const body = await res.json();
+    if (!body.ok){
+      log(`arm rejected: ${body.error}` + (body.expires_in ? ` -- try again in ${Math.ceil(body.expires_in)}s` : ""), "err");
+      return;
+    }
+    armed = true;
+    updateArmUI();
+    log("armed", "ok");
+  } catch (e) {
+    log("arm request failed: " + (e.message || e), "err");
+  } finally {
+    $("armBtn").disabled = false;
+  }
+}
+
+async function doDisarm(){
+  $("armBtn").disabled = true;
+  try {
+    await fetch("/api/disarm", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({session_id: sessionId}),
+    });
+  } catch (e) { /* server-side TTL will release it even if this never lands */ }
+  armed = false;
+  updateArmUI();
+  log("disarmed");
+  $("armBtn").disabled = false;
+}
+
+$("armBtn").addEventListener("click", () => { armed ? doDisarm() : doArm(); });
+
+/* Polls arm status every few seconds: shows "armed by someone else" to
+   anyone who isn't holding the lock, and self-corrects this session's own
+   UI if the server-side TTL expired without an explicit disarm (tab
+   backgrounded, network hiccup) -- the lock is already released server-side
+   either way, this just keeps the button honest about it. */
+async function pollArmStatus(){
+  try {
+    const res = await fetch("/api/arm?session_id=" + encodeURIComponent(sessionId));
+    const s = await res.json();
+    if (s.armed && !s.mine){
+      $("armBtn").disabled = true;
+      if (!armed) $("armD").textContent = `Armed by another session -- ${Math.ceil(s.expires_in)}s left.`;
+      if (armed){ armed = false; updateArmUI(); log("arm lost to another session", "err"); }
+    } else {
+      $("armBtn").disabled = false;
+      if (armed && !s.armed){ armed = false; updateArmUI(); log("arm expired", "err"); }
+    }
+  } catch (e) { /* transient -- next poll retries */ }
+}
+setInterval(pollArmStatus, 3000);
+
+$("cfCancel").addEventListener("click", () => {
+  // Cancel leaves the edits in place -- you may have mistyped one of several.
+  // Discard on the card is what clears them.
+  queue = []; $("confirm").close();
+});
+
+window.addEventListener("beforeunload", e => {
+  if (anyDirty){ e.preventDefault(); e.returnValue = ""; }
+});
+$("cfDry").addEventListener("click", () => send(true));
+$("cfGo").addEventListener("click",  () => send(false));
+
+(async function init(){
+  try {
+    const res = await fetch("/api/site");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const site = await res.json();
+    CFG.username = site.settingsMqttUser; CFG.password = site.settingsMqttPass;
+  } catch (e) {
+    log("could not load /api/site: " + (e.message || e), "err");
+  }
+  build(); connect();
+  GROUPS.forEach(g => refreshGroup(g.num));
+  pollArmStatus();
+  log("ready — edit freely; nothing is sent until Save");
+})();
+</script>
+</body>
+</html>

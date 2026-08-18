@@ -1,0 +1,74 @@
+# Template for the device/site config. This file is TRACKED and read-only
+# at runtime (bind-mounted at /config, alongside the register maps) -- it is
+# not what actually configures the poller. On first boot, if the writable
+# instance (a Docker volume, /data/config.yaml inside the container) doesn't
+# exist yet, it's seeded from this file. From then on, the Config page in
+# the web UI (dashboard/config.html) reads and writes the volume copy, not
+# this one -- edit devices there, not here.
+#
+# This file exists so the schema is documented and reviewable like
+# everything else in this repo, and so a fresh deploy starts from something
+# sane rather than an empty file. Devices below are commented out
+# deliberately: nothing should start polling a port until you've picked it,
+# for real, from what's actually plugged in.
+
+site:
+  lat: null   # set on the Config page; the forecast is disabled until both are set
+  lon: null
+  tz: UTC
+
+# Full-scale watts per flow, for sizing the dashboard's one-line diagram
+# (arc fill, flow-line animation speed). Set these to roughly your
+# system's ceiling. Display tuning only -- nothing backend-side reads it.
+scale: {pv: 4000, grid: 8000, load: 6000, batt: 6000}
+
+devices: []
+
+# --- Schema reference --------------------------------------------------
+# One entry per physical device. `name` is the MQTT topic segment
+# (energy/<name>/state) and must be unique. `port` is a /dev/serial/by-id/...
+# path -- stable across reboots, keyed to the adapter's own serial number,
+# unlike /dev/ttyUSB0. `poll_interval` is in seconds; devices sharing a
+# value share a synchronized tick (see app/poller.py), which matters for
+# derive.py's bank-aggregation join across battery packs -- keep same-bank
+# packs on the same interval.
+#
+# - name: inverter_1
+#   type: modbus              # modbus | jbd | eg4ll
+#   enabled: true
+#   model: EG4 6000XP
+#   role: inverter             # inverter | battery -- drives derive.py's branch
+#   location: garage
+#   port: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_XXXXXXXX-if00-port0
+#   baud: 19200
+#   unit_id: 1
+#   timeout: 1.5
+#   read_holding: true
+#   poll_interval: 4
+#   register_map: /config/eg4_6000xp_registers.yaml   # fixed per type, not user-editable
+#
+# - name: cubix_1
+#   type: jbd
+#   enabled: true
+#   model: Eco-Worthy Cubix 100
+#   role: battery
+#   location: garage
+#   tags: {chemistry: LiFePO4, capacity_ah: 100}
+#   port: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_XXXXXXXX-if00-port0
+#   baud: 9600                 # HNJD default; try 115200 if silent
+#   timeout: 2.0
+#   read_cells: true           # cmd 0x04 -- per-cell mV. 0x03 has NO cell data.
+#   poll_interval: 4
+#
+# - name: lls_1
+#   type: eg4ll
+#   enabled: true
+#   model: EG4 LL-S 100Ah
+#   role: battery
+#   location: garage
+#   tags: {chemistry: LiFePO4, capacity_ah: 100}
+#   port: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_XXXXXXXX-if00-port0
+#   baud: 9600
+#   unit_id: 2                 # DIP switch address
+#   timeout: 2.0
+#   poll_interval: 4

@@ -14,6 +14,7 @@ Design notes:
 """
 
 import asyncio
+import glob
 import hashlib
 import json
 from datetime import datetime
@@ -25,12 +26,20 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+import aiohttp
 import yaml
 from eg4ll import Eg4LlDevice
 from jbd import JbdDevice
 from pymodbus.client import AsyncModbusSerialClient
 from pymodbus.exceptions import ModbusException
 import aiomqtt
+
+import armlock
+import derive
+import devconfig
+import forecast
+import influx_write
+import webapp
 
 LOG = logging.getLogger("eg4poll")
 
@@ -483,21 +492,30 @@ class InverterDevice:
 
 
 class Runner:
-    def __init__(self, cfg: dict):
-        self.cfg = cfg
-        self.interval: float = cfg.get("poll_interval", 10.0)
-        self.base_topic: str = cfg["mqtt"].get("base_topic", "energy")
-        # Writes are off unless explicitly enabled. A poller that can only
-        # read cannot misconfigure an inverter, and that is the safe default
-        # for something restarted by a compose file.
-        self.allow_writes: bool = bool(cfg.get("allow_writes", False))
+    def __init__(self, devices_cfg: list[dict], mqtt_cfg: dict, site_cfg: dict, influx_cfg: dict,
+                 armlock_: armlock.ArmLock | None = None):
+        self.mqtt_cfg = mqtt_cfg
+        self.base_topic: str = mqtt_cfg.get("base_topic", "energy")
+        self.site_cfg = site_cfg
+        self.influx_cfg = influx_cfg
+        # Shared with webapp.py's /api/arm -- same object, so a session that
+        # armed through the HTTP API is exactly what gets checked here
+        # before any real (non-dry-run) write is executed. See app/armlock.py.
+        self.armlock = armlock_ if armlock_ is not None else armlock.ArmLock()
         self.devices: list[InverterDevice] = []
         # name -> tag dict, merged into every published envelope. Kept out of
         # the device classes so it applies uniformly to any driver type.
         self.tags: dict[str, dict] = {}
+        # name -> poll interval. Devices sharing an interval share a tick
+        # (see run()) so their tick_ts still lines up for derive.bank_join;
+        # a device on its own interval just gets its own tick loop.
+        self.intervals: dict[str, float] = {}
         self._stop = asyncio.Event()
+        self.derive_state = derive.DeriveState()
+        self._http: aiohttp.ClientSession | None = None  # set in run()
 
-        for dev_cfg in cfg["devices"]:
+        seen_ports: dict[str, str] = {}
+        for dev_cfg in devices_cfg:
             if not dev_cfg.get("enabled", True):
                 LOG.info("skipping disabled device %s", dev_cfg.get("name"))
                 continue
@@ -508,6 +526,15 @@ class Runner:
                 # Two devices with the same name would publish to the same
                 # topic and silently overwrite each other.
                 raise SystemExit(f"duplicate device name {name!r} -- names must be unique")
+            port = dev_cfg.get("port")
+            if port:
+                # Used to be implicitly caught by docker-compose's explicit
+                # per-device mapping; that mapping is gone now that the
+                # container can see any attached USB-serial adapter (see
+                # devconfig.py), so this has to be checked here instead.
+                if port in seen_ports:
+                    raise SystemExit(f"devices {seen_ports[port]!r} and {name!r} both claim port {port!r}")
+                seen_ports[port] = name
 
             tags = dict(dev_cfg.get("tags", {}))
             # Promote a few common fields so they don't have to be duplicated
@@ -517,6 +544,7 @@ class Runner:
                     tags[k] = dev_cfg[k]
             tags.setdefault("device", name)
             self.tags[name] = tags
+            self.intervals[name] = float(dev_cfg.get("poll_interval", devconfig.DEFAULT_POLL_INTERVAL))
 
             dtype = dev_cfg.get("type", "modbus")
             if dtype == "modbus":
@@ -534,48 +562,82 @@ class Runner:
             raise SystemExit("no enabled devices in config")
 
         for n, t in self.tags.items():
-            LOG.info("device %-12s tags=%s", n, t)
-        LOG.warning("writes are %s",
-                    "ENABLED" if self.allow_writes
-                    else "DISABLED (read-only) -- set allow_writes: true in config.yaml")
+            LOG.info("device %-12s tags=%s poll=%ss", n, t, self.intervals[n])
 
     def stop(self):
         self._stop.set()
 
     async def run(self):
-        m = self.cfg["mqtt"]
-        while not self._stop.is_set():
-            try:
-                async with aiomqtt.Client(
-                    hostname=m["host"],
-                    port=m.get("port", 1883),
-                    username=m.get("username") or None,
-                    password=m.get("password") or None,
-                    identifier=m.get("client_id", "eg4poll"),
-                ) as mqtt:
-                    LOG.info("MQTT connected to %s:%s", m["host"], m.get("port", 1883))
-                    # The tick loop and the command listener run concurrently:
-                    # a command must not wait for the next poll, and a poll
-                    # must not be delayed by an idle subscription.
-                    await asyncio.gather(
-                        self._loop(mqtt),
-                        self._commands(mqtt),
-                    )
-            except Exception as e:
-                if self._stop.is_set():
-                    break
-                LOG.warning("MQTT connection lost (%s); retrying in 5s", e)
+        m = self.mqtt_cfg
+        async with aiohttp.ClientSession() as http:
+            self._http = http
+            while not self._stop.is_set():
                 try:
-                    await asyncio.wait_for(self._stop.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    pass
+                    async with aiomqtt.Client(
+                        hostname=m["host"],
+                        port=m.get("port", 1883),
+                        username=m.get("username") or None,
+                        password=m.get("password") or None,
+                        identifier=m.get("client_id", "eg4poll"),
+                    ) as mqtt:
+                        LOG.info("MQTT connected to %s:%s", m["host"], m.get("port", 1883))
+                        # Every interval group gets its own tick loop, plus
+                        # the command listener and the forecast timer, all
+                        # concurrent: a command must not wait for the next
+                        # poll, and a slow device on one interval must not
+                        # delay a fast device on another.
+                        groups: dict[float, list[InverterDevice]] = {}
+                        for dev in self.devices:
+                            groups.setdefault(self.intervals[dev.name], []).append(dev)
+                        coros = [self._loop(mqtt, interval, devs) for interval, devs in groups.items()]
+                        coros.append(self._commands(mqtt))
+                        coros.append(self._forecast_loop(mqtt))
+                        tasks = [asyncio.ensure_future(c) for c in coros]
+                        # _commands blocks on `async for msg in mqtt.messages`,
+                        # which nothing about self._stop being set can ever
+                        # unblock on its own -- a plain gather() would hang
+                        # past shutdown waiting for it. Race everything
+                        # against the stop event instead, and actually cancel
+                        # (not just wait for) whatever is still running.
+                        stop_waiter = asyncio.ensure_future(self._stop.wait())
+                        try:
+                            done, _ = await asyncio.wait(
+                                [stop_waiter, *tasks], return_when=asyncio.FIRST_COMPLETED)
+                            if stop_waiter not in done:
+                                for t in done:
+                                    exc = t.exception()
+                                    if exc:
+                                        raise exc
+                        finally:
+                            stop_waiter.cancel()
+                            for t in tasks:
+                                if not t.done():
+                                    t.cancel()
+                            await asyncio.gather(*tasks, return_exceptions=True)
+                    if self._stop.is_set():
+                        break
+                except Exception as e:
+                    if self._stop.is_set():
+                        break
+                    LOG.warning("MQTT connection lost (%s); retrying in 5s", e)
+                    try:
+                        await asyncio.wait_for(self._stop.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        pass
 
     async def _commands(self, mqtt):
         """Listen on <base>/<device>/set and apply validated writes.
 
         Payload:
-            {"key": "set_ac_charge_current", "value": 40,
-             "dry_run": false, "request_id": "optional"}
+            {"key": "set_ac_charge_current", "value": 40, "dry_run": false,
+             "session_id": "...", "request_id": "optional"}
+
+        session_id must currently hold the arm lock (see app/armlock.py,
+        POST /api/arm) for anything other than a dry run -- solar_settings.html
+        arms through that HTTP endpoint before it ever publishes a real
+        write, so only one browser tab, anywhere, can have live commands
+        land at a time. dry_run is exempt: it never touches the bus, so
+        there is nothing for a second concurrent session to conflict with.
 
         Result is published to <base>/<device>/set/result, always -- including
         on rejection, so a UI never has to guess whether a command was seen.
@@ -601,6 +663,7 @@ class Runner:
             key = cmd.get("key")
             val = cmd.get("value")
             dry = bool(cmd.get("dry_run", False))
+            session_id = cmd.get("session_id")
 
             async def reply(res):
                 res = dict(res, request_id=rid, ts=round(time.time(), 3))
@@ -613,12 +676,8 @@ class Runner:
             if not hasattr(dev, "write_holding"):
                 await reply({"ok": False, "error": f"{name} does not support writes"})
                 continue
-            # dry_run is allowed even when writes are disabled -- it never
-            # touches the bus, and being able to validate a value without
-            # arming the system is useful.
-            if not self.allow_writes and not dry:
-                await reply({"ok": False,
-                             "error": "writes are disabled (set allow_writes: true)"})
+            if not dry and not self.armlock.check(session_id):
+                await reply({"ok": False, "error": "not armed -- arm this session via POST /api/arm first"})
                 continue
 
             LOG.warning("command %s %s=%r dry_run=%s rid=%s",
@@ -633,13 +692,13 @@ class Runner:
                 res = {"ok": False, "error": f"{type(e).__name__}: {e}"}
             await reply(res)
 
-    async def _loop(self, mqtt):
+    async def _loop(self, mqtt, interval: float, devices: list[InverterDevice]):
         # Align ticks to wall-clock multiples of the interval so samples land
         # on predictable boundaries -- makes cross-source comparison in Influx
         # much easier to reason about.
         while not self._stop.is_set():
             now = time.time()
-            next_tick = (now // self.interval + 1) * self.interval
+            next_tick = (now // interval + 1) * interval
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=next_tick - now)
                 break
@@ -648,13 +707,13 @@ class Runner:
 
             tick_ts = next_tick
 
-            # Poll every device concurrently off the same tick, and publish
-            # each one the moment IT finishes rather than waiting for the
-            # slowest. A single slow Modbus read (a timeout-and-retry can
-            # take 3 s against a 375 ms median) would otherwise stall MQTT
-            # for every device -- the fast packs would sit finished-but-
-            # unpublished. tick_ts still ties the samples together for the
-            # downstream join; only delivery is decoupled.
+            # Poll every device on this interval concurrently off the same
+            # tick, and publish each one the moment IT finishes rather than
+            # waiting for the slowest. A single slow Modbus read (a
+            # timeout-and-retry can take 3 s against a 375 ms median) would
+            # otherwise stall MQTT for every device -- the fast packs would
+            # sit finished-but-unpublished. tick_ts still ties the samples
+            # together for the downstream join; only delivery is decoupled.
             async def poll_and_publish(dev):
                 try:
                     res = await dev.poll(tick_ts)
@@ -686,21 +745,125 @@ class Runner:
                     d = f" delta={max(mv) - min(mv)}mV" if mv else ""
                     extra = f" {v['voltage']}V {v.get('current')}A{d}"
                 # Flag a read that ate a meaningful slice of the tick budget.
-                slow = "  SLOW" if elapsed > self.interval * 1000 * 0.5 else ""
+                slow = "  SLOW" if elapsed > interval * 1000 * 0.5 else ""
                 LOG.info(
                     "%s: %d/%d ok, %.0fms, soc=%s%%%s%s",
                     dev.name, res["spans_ok"], res["spans_total"],
                     elapsed, soc, extra, slow,
                 )
 
+                await self._derive_and_publish(mqtt, res)
+
             results = await asyncio.gather(
-                *(poll_and_publish(d) for d in self.devices),
+                *(poll_and_publish(d) for d in devices),
                 return_exceptions=True,
             )
             # A publish failure bubbles out so the outer loop reconnects MQTT.
             for r in results:
                 if isinstance(r, Exception):
                     raise r
+
+    async def _derive_and_publish(self, mqtt, envelope: dict):
+        """PV correction, energy integration, cell math, bank aggregation --
+        everything poller.py deliberately does not compute at the point of
+        reading a register. See derive.py. Publishes energy/derived/<device>
+        (and energy/derived/bank, if this poll completed a fresh pair of
+        packs) and writes the same points to InfluxDB."""
+        try:
+            out = derive.transform(self.derive_state, envelope)
+        except Exception as e:
+            LOG.error("%s: derive failed: %s", envelope["device"], e)
+            return
+        if out is None:
+            return
+
+        derived_topic = f"{self.base_topic}/derived/{envelope['device']}"
+        payload = dict(out["fields"], tick_ts=out["tick_ts"])
+        payload.update(out["cell_fields"])
+        try:
+            await mqtt.publish(derived_topic, json.dumps(payload, separators=(",", ":")), qos=0, retain=False)
+        except Exception as e:
+            LOG.warning("derived publish failed for %s: %s", envelope["device"], e)
+
+        points = [{"measurement": out["measurement"], "tags": out["tags"],
+                   "fields": out["fields"], "timestamp": out["tick_ts"]}]
+        # Per-cell voltages go to their own measurement -- the least likely
+        # thing anyone wants at full resolution a year from now, so they can
+        # be dropped independently without touching SOC/current/temp history.
+        if out["cell_fields"]:
+            points.append({"measurement": "battery_cells", "tags": out["tags"],
+                            "fields": out["cell_fields"], "timestamp": out["tick_ts"]})
+        await self._write_influx(points)
+
+        bank = derive.bank_join(self.derive_state)
+        if bank is not None:
+            bank_topic = f"{self.base_topic}/derived/bank"
+            bank_payload = dict(bank["fields"], tick_ts=bank["tick_ts"])
+            try:
+                await mqtt.publish(bank_topic, json.dumps(bank_payload, separators=(",", ":")), qos=0, retain=False)
+            except Exception as e:
+                LOG.warning("bank publish failed: %s", e)
+            await self._write_influx([{"measurement": "bank", "tags": bank["tags"],
+                                        "fields": bank["fields"], "timestamp": bank["tick_ts"]}])
+
+    async def _write_influx(self, points: list[dict]):
+        if not self.influx_cfg.get("token"):
+            return  # not configured -- MQTT publish still happened regardless
+        try:
+            await influx_write.write_points(
+                self._http, self.influx_cfg["url"], self.influx_cfg["token"],
+                self.influx_cfg["org"], self.influx_cfg["bucket"], points,
+            )
+        except Exception as e:
+            # Influx is history; MQTT is the live path. A write failure here
+            # should never take the poll/publish loop down with it.
+            LOG.warning("influx write failed: %s", e)
+
+    async def _forecast_loop(self, mqtt):
+        lat, lon = self.site_cfg.get("lat"), self.site_cfg.get("lon")
+        tz = self.site_cfg.get("tz") or "UTC"
+        if lat is None or lon is None:
+            LOG.warning("forecast disabled -- set site lat/lon on the Config page")
+            return
+
+        # Matches the original inject timing: a short startup delay, then
+        # hourly.
+        try:
+            await asyncio.wait_for(self._stop.wait(), timeout=20)
+        except asyncio.TimeoutError:
+            pass
+
+        while not self._stop.is_set():
+            try:
+                raw = await forecast.fetch_raw(self._http, lat, lon, tz)
+                result = forecast.model(raw, tz)
+                f = result["fields"]
+
+                topic = f"{self.base_topic}/derived/forecast"
+                payload = dict(f, tick_ts=result["tick_ts"], series=result["series_for_mqtt"])
+                # RETAINED, unlike the live state topics -- this publishes
+                # only once an hour, so a page loaded in between would
+                # otherwise see nothing. A slightly-old hourly forecast is
+                # still correct, unlike a stale power reading.
+                await mqtt.publish(topic, json.dumps(payload, separators=(",", ":")), qos=0, retain=True)
+
+                points = [{"measurement": "forecast", "tags": {"role": "forecast", "source": "open-meteo"},
+                           "fields": f, "timestamp": result["tick_ts"]}]
+                points += result["hourly_points"]
+                await self._write_influx(points)
+
+                LOG.info("forecast: now=%sW today=%.2fkWh remaining=%.2fkWh tomorrow=%.2fkWh",
+                          f["forecast_w"], f["forecast_today_kwh"],
+                          f["forecast_remaining_kwh"], f["forecast_tomorrow_kwh"])
+            except Exception as e:
+                LOG.warning("forecast fetch failed: %s", e)
+
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=3600)
+                break
+            except asyncio.TimeoutError:
+                pass
+
 
 def _sha(path: str) -> str:
     """Short digest of a mounted file, logged at startup.
@@ -716,13 +879,49 @@ def _sha(path: str) -> str:
         return f"unreadable ({e})"
 
 
-def load_config(path: str) -> dict:
-    with open(path) as f:
-        raw = f.read()
-    # Allow ${ENV_VAR} substitution for secrets
-    for k, v in os.environ.items():
-        raw = raw.replace(f"${{{k}}}", v)
-    return yaml.safe_load(raw)
+def _sha_glob(pattern: str) -> str:
+    """Digest of every file matching pattern, concatenated in sorted order.
+
+    Mirrors `cat app/*.py | sha256sum | cut -c1-12`, which is how deploy.sh
+    computes the code hash this startup banner is checked against.
+    """
+    try:
+        h = hashlib.sha256()
+        for p in sorted(glob.glob(pattern)):
+            with open(p, "rb") as f:
+                h.update(f.read())
+        return h.hexdigest()[:12]
+    except Exception as e:
+        return f"unreadable ({e})"
+
+
+def _require_env(name: str) -> str:
+    v = os.environ.get(name)
+    if not v:
+        raise SystemExit(f"{name} is not set -- check .env / docker-compose.yml")
+    return v
+
+
+async def _read_secret_file(path: str, what: str, timeout: float = 30.0) -> str:
+    """Reads a secret generated by another container and shared only via a
+    Docker volume file -- never an env var, never .env (see
+    influx/entrypoint.sh for the InfluxDB admin token, mosquitto/
+    init-passwd.sh for the poller MQTT password). Waits up to `timeout` for
+    it to appear (the writer's own init can race this container's
+    startup), then gives up and returns "" rather than blocking forever."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with open(path) as f:
+                secret = f.read().strip()
+            if secret:
+                return secret
+        except OSError:
+            pass
+        await asyncio.sleep(1)
+    LOG.warning("%s never appeared after %.0fs -- %s (a restart will retry)",
+                path, timeout, what)
+    return ""
 
 
 async def main():
@@ -730,10 +929,77 @@ async def main():
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
     )
-    cfg_path = os.environ.get("CONFIG", "/app/config.yaml")
-    cfg = load_config(cfg_path)
+    LOG.info("starting eg4poll %s (%s)", VERSION, GIT_SHA)
+    # deploy.sh parses these two lines back out of the container's logs to
+    # prove the running code and config match the repo, rather than
+    # inferring it from behaviour later.
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    LOG.info("code /app  sha256 %s", _sha_glob(os.path.join(app_dir, "*.py")))
 
-    runner = Runner(cfg)
+    # The device/site config is now app-managed state (see devconfig.py),
+    # written by the web Config page rather than hand-edited -- so unlike
+    # code, there is nothing to compare this hash against; it is here
+    # purely so a support log shows whether it changed between two runs.
+    devcfg_path = os.environ.get("DEVCONFIG", "/data/config.yaml")
+    cfg = devconfig.load(devcfg_path)
+    LOG.info("config %s  sha256 %s", devcfg_path, _sha(devcfg_path))
+
+    mqtt_cfg = {
+        "host": _require_env("MQTT_HOST"),
+        "port": int(os.environ.get("MQTT_PORT", 1883)),
+        # Username is a fixed literal, not user-configurable -- mosquitto/acl's
+        # `user poller` block requires this exact name. The password is
+        # generated inside the mosquitto container itself (see
+        # mosquitto/init-passwd.sh) and shared only via this file -- this
+        # account is purely internal (eg4poll <-> its own bundled broker),
+        # never exposed to a browser, so there is nothing for a human to type.
+        "username": "poller",
+        "password": await _read_secret_file(
+            os.environ.get("MQTT_POLLER_PASS_FILE", "/mqtt-shared/mqtt-poller-pass"),
+            "MQTT auth as poller will fail until it does",
+        ),
+        "base_topic": os.environ.get("MQTT_BASE_TOPIC", "energy"),
+        "client_id": os.environ.get("MQTT_CLIENT_ID", "eg4poll"),
+    }
+    influx_cfg = {
+        "url": os.environ.get("INFLUX_URL", "http://influxdb:8086"),
+        "token": await _read_secret_file(
+            os.environ.get("INFLUX_TOKEN_FILE", "/influx-shared/influx-admin-token"),
+            "Influx writes disabled until it does",
+        ),
+        "org": os.environ.get("INFLUX_ORG", "eg4poll"),
+        "bucket": os.environ.get("INFLUX_BUCKET", "energy"),
+    }
+
+    # One lock, shared between the HTTP arm/disarm API (webapp.py) and the
+    # command handler that actually enforces it (Runner._commands). See
+    # app/armlock.py -- built here regardless of whether Runner construction
+    # below succeeds, so /api/arm stays a consistent, working endpoint even
+    # in degraded mode (there's just nothing for it to gate yet).
+    lock = armlock.ArmLock()
+
+    # A bad config must never lock the user out of the page that would let
+    # them fix it -- so the web API is built and started regardless of
+    # whether Runner construction below succeeds. If it doesn't, the
+    # process stays up in a degraded, poll-nothing state: reachable at
+    # /api/config to inspect and fix, at which point PUT /api/config exits
+    # the process (see webapp.py) and `restart: unless-stopped` retries
+    # Runner construction from scratch.
+    runner = None
+    startup_error = None
+    try:
+        runner = Runner(cfg["devices"], mqtt_cfg, cfg["site"], influx_cfg, lock)
+    except SystemExit as e:
+        startup_error = str(e)
+        LOG.error("config invalid -- polling disabled until fixed via the Config page: %s", startup_error)
+
+    web_app = webapp.build_app(devcfg_path, runner, startup_error, lock)
+    await webapp.start(web_app, port=int(os.environ.get("WEBAPP_PORT", 8081)))
+
+    if runner is None:
+        await asyncio.Event().wait()
+        return
+
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, runner.stop)

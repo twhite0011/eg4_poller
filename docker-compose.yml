@@ -1,55 +1,214 @@
 services:
+  # --------------------------------------------------------------------
+  # mosquitto: the broker. 1883 is published to the LAN so whatever you
+  # wire up yourself externally (Home Assistant, a NAS recording pipeline,
+  # anything else -- out of scope for this image) can subscribe directly
+  # with no account at all (mosquitto/acl's global anonymous-read rule);
+  # 9001 (websockets) stays internal -- nginx proxies that at /mqtt.
+  # --------------------------------------------------------------------
+  mosquitto-init:
+    # Builds /mosquitto/config/passwd, once. Runs and exits; mosquitto
+    # won't start until this succeeds. See mosquitto/init-passwd.sh for why
+    # this has to be a separate step (mosquitto itself runs as a fixed
+    # non-root uid that can't safely be handed the file-creation step) and
+    # for why the poller account's password is generated here rather than
+    # read from .env.
+    image: eclipse-mosquitto:2
+    container_name: eg4-mosquitto-init
+    restart: "no"
+    env_file:
+      - .env
+    entrypoint: sh /init-passwd.sh
+    volumes:
+      - mosquitto_config:/mosquitto/config
+      - mqtt_shared:/shared
+      - ./mosquitto/init-passwd.sh:/init-passwd.sh:ro
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: eg4-mosquitto
+    restart: unless-stopped
+    depends_on:
+      mosquitto-init:
+        condition: service_completed_successfully
+    ports:
+      - "1883:1883"
+    volumes:
+      - mosquitto_config:/mosquitto/config
+      - mosquitto_data:/mosquitto/data
+      # Config and ACL are tracked, no secrets in either -- see mosquitto/.
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
+
+  # --------------------------------------------------------------------
+  # influxdb: local store for the dashboard, 6-month retention (the NAS's
+  # own InfluxDB, subscribed to mosquitto independently, is what keeps
+  # everything without expiry -- this one only has to cover what the
+  # dashboard actually queries).
+  # --------------------------------------------------------------------
+  influxdb:
+    # Wraps the official image so org/bucket/username/password/admin token
+    # are all generated inside the container on first boot -- nobody types
+    # any of them. See influx/entrypoint.sh.
+    build: ./influx
+    container_name: eg4-influxdb
+    restart: unless-stopped
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influx_shared:/shared
+    # Not published to the LAN by default -- nginx proxies dashboard queries
+    # with a scoped read-only token (see influx-init). Uncomment for direct/
+    # admin access (the admin password was generated once and thrown away,
+    # so this alone won't get you in -- see influx/entrypoint.sh):
+    # ports:
+    #   - "8086:8086"
+
+  influx-init:
+    # Provisions the bucket-scoped READ-ONLY token nginx injects into
+    # dashboard queries. See influx/init-read-token.sh for why this can't
+    # just be another .env value -- InfluxDB generates the token string
+    # itself, it can't be assigned one.
+    image: influxdb:2
+    container_name: eg4-influx-init
+    restart: "no"
+    depends_on:
+      - influxdb
+    environment:
+      INFLUX_URL: http://influxdb:8086
+    entrypoint: sh /init-read-token.sh
+    volumes:
+      - influx_shared:/shared
+      - ./influx/init-read-token.sh:/init-read-token.sh:ro
+
+  # --------------------------------------------------------------------
+  # nginx: serves the dashboard pages, proxies MQTT-over-websockets and
+  # InfluxDB queries, and proxies eg4poll's own config API -- so the
+  # browser only ever has to know this one host.
+  # --------------------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    container_name: eg4-nginx
+    restart: unless-stopped
+    depends_on:
+      mosquitto:
+        condition: service_started
+      influx-init:
+        condition: service_completed_successfully
+      eg4poll:
+        condition: service_started
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./dashboard:/usr/share/nginx/html:ro
+      - influx_shared:/etc/nginx/shared:ro
+
   eg4poll:
     # Deploy: pull the pinned tag. Avoid :latest -- a pull would silently swap
     # the running code, which makes "why is this register wrong" unanswerable.
-    image: twhitedocker/eg4poll:0.8.1
+    # `make deploy` does not rewrite this. Point it at :latest and let the
+    # tag do the work, or pin a version when you want to stay put.
+    image: ${IMAGE}
+    # `deploy.sh -b VERSION` builds+pushes a new tag and updates IMAGE in
+    # both copies of .env (this machine's and the Pi's) as one step -- see
+    # deploy.sh for the exact command it runs.
+    #
     # Build host only -- comment out `image:` above and uncomment this to build
-    # locally. Cross-arch from x86 needs:
-    #   docker buildx build --platform linux/arm64 -t twhitedocker/eg4poll:0.8.1 --push .
+    # locally instead of pulling a tag. Cross-arch from x86 needs:
+    #   docker buildx build --platform linux/arm64 -t $IMAGE --push .
     # build: .
 
     container_name: eg4poll
     restart: unless-stopped
+    depends_on:
+      mosquitto-init:
+        condition: service_completed_successfully
+      mosquitto:
+        condition: service_started
+      influxdb:
+        condition: service_started
 
-    # Secrets come from ./.env, which is excluded by .dockerignore and should
-    # be gitignored. Keeps credentials out of both the image and the repo.
+    # SETTINGS_MQTT_PASS (the only credential left in .env, other than the
+    # deploy target itself) is excluded by .dockerignore and should be
+    # gitignored, keeping it out of both the image and the repo. The
+    # poller MQTT account and InfluxDB's token are the exceptions -- both
+    # are generated inside their own containers and read from a shared
+    # volume below, never typed into .env. See mosquitto/init-passwd.sh,
+    # influx/entrypoint.sh, app/poller.py.
     env_file:
       - .env
 
     environment:
       LOG_LEVEL: "INFO"
+      # Stamped by deploy.sh (git describe / git rev-parse) into the remote
+      # shell before `docker compose up`, not read from .env -- so the ${...}
+      # defaults below are what a plain `docker compose up` (no deploy.sh)
+      # gets instead. app/poller.py logs both once at startup; deploy.sh's
+      # own verify step greps that log line back out to confirm the Pi is
+      # actually running what was just pushed.
+      EG4POLL_VERSION: ${EG4POLL_VERSION:-dev}
+      EG4POLL_SHA: ${EG4POLL_SHA:-unknown}
+      # This container's own bundled broker/DB -- not user-configurable via
+      # .env, since they are always these compose services, not something
+      # that changes based on what hardware is plugged in.
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      INFLUX_URL: http://influxdb:8086
+      # org/bucket are fixed constants baked into influx/entrypoint.sh, not
+      # user input -- poller.py defaults to these same values, listed here
+      # only so this file stays the one place to look. The token itself is
+      # never an env var: it's generated inside the influxdb container and
+      # read from the shared volume below (see app/poller.py:_read_secret_file).
+      INFLUX_ORG: eg4poll
+      INFLUX_BUCKET: energy
 
-    devices:
-      # by-id paths are kernel-maintained and stable across reboots (keyed to
-      # each FTDI chip's serial), so no udev rule is needed. Every host path
-      # here must exist before start or Docker refuses to launch the container.
-
-      # EG4 6000XP -- RS485 behind the HDMI-form dongle port. 19200 8N1, Modbus RTU.
-      # The dongle must be removed: it shares this bus.
-      - "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_BG03WJUA-if00-port0:/dev/rs485-inverter-1"
-
-      # Eco-Worthy Cubix -- RS485-1 with the pack's protocol set to HNJD,
-      # which exposes native JBD framing. 9600 8N1. Verified: 115200 and 19200
-      # get no response. Independent of the CAN link to the inverter.
-      - "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A994XDNE-if00-port0:/dev/rs485-cubix-1"
-
-      # Second Cubix -- its own adapter. JBD is not an addressable protocol,
-      # so two JBD packs cannot share a bus. Fill in the by-id path:
-      #   ls -l /dev/serial/by-id/
-      - "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_BG03TTF3-if00-port0:/dev/rs485-cubix-2"
-
-      # EG4 LL-S -- RS485 port, Modbus RTU, 9600 8N1, slave ID 2 from DIP switches.
-      # Solar Assistant cannot share this port: two Modbus masters collide.
-      - "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_BG03E5RH-if00-port0:/dev/rs485-lls-1"
+    # No more per-device `devices:` mapping -- the Config page (see
+    # app/devconfig.py, app/webapp.py) lets you pick from whatever's
+    # actually plugged in, which means the container has to be able to SEE
+    # any USB-serial adapter, not just ones declared here ahead of time.
+    # device_cgroup_rules scopes that to the two USB-serial device classes
+    # (not `privileged: true`, which would be every host device) --
+    # 188/166 are the standard Linux kernel major numbers for ttyUSB/ttyACM,
+    # not host-specific.
+    device_cgroup_rules:
+      - 'c 188:* rmw'   # ttyUSB -- FTDI/CH340/CP210x/PL2303 adapters
+      - 'c 166:* rmw'   # ttyACM -- CDC-ACM class adapters
 
     # 'dialout' on Debian/RPi OS. Verify with: getent group dialout
+    # Still needed alongside device_cgroup_rules above: the cgroup rule
+    # controls whether the container's device controller permits opening
+    # these device classes at all; the host's normal file permissions
+    # (root:dialout, mode 660) still apply on top of that, unchanged by the
+    # /dev bind mount.
     group_add:
-      - "20"
+      - "${DIALOUT_GID}"
 
     volumes:
-      # Whole config dir. config.yaml is REQUIRED -- excluded from the image
-      # by .dockerignore, so the container fails loudly without this mount.
+      - /dev:/dev
+      # The web-managed device/site config (see app/devconfig.py) -- app
+      # state now, not a hand-edited tracked file. Seeded from
+      # config/config.example.yaml on first boot if the volume is empty.
+      - eg4poll_config:/data
       - ./config:/config:ro
-      # Dev only: mount source so code changes need just `compose restart`
-      # instead of rebuild/push/pull. Comment out for production deploys.
-      # - ./app:/app:ro
+      # Read-only: this is where influx/entrypoint.sh wrote the admin token
+      # it generated. Not writable from here -- eg4poll only ever reads it.
+      - influx_shared:/influx-shared:ro
+      # Read-only: this is where mosquitto/init-passwd.sh wrote the poller
+      # account's generated password. Not writable from here either.
+      - mqtt_shared:/mqtt-shared:ro
+      # Source is BIND-MOUNTED, not baked in. deploy.sh rsyncs this directory
+      # and restarts, so a code change actually reaches the Pi without a
+      # registry round-trip. The image becomes just a Python runtime plus
+      # dependencies, and only changes when requirements.txt does.
+      #
+      # The trade: the image tag no longer identifies the code. That is why
+      # the poller hashes /app at startup and logs it.
+      - ./app:/app:ro
+
+volumes:
+  mosquitto_config:   # generated passwd file only -- mosquitto.conf/acl are bind-mounted
+  mosquitto_data:
+  influxdb_data:
+  influx_shared:       # influxdb -> influx-init/eg4poll: admin token (eg4poll) and, via influx-init, the dashboard's read-only Influx token (nginx)
+  mqtt_shared:         # mosquitto-init -> eg4poll: the poller account's generated password
+  eg4poll_config:       # the web-managed device/site config -- see app/devconfig.py

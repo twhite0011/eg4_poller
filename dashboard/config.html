@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Config — angrycat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=Barlow:wght@400;500&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0F1519; --panel:#161F25; --panel-2:#1B262D;
+  --rule:#2A3841; --rule-lit:#3B4E5A;
+  --text:#E4EBEF; --muted:#74868F; --dim:#4C5C65;
+  --pv:#E8B33C; --batt:#3FA7A0; --warn:#D2694A; --ok:#4E9E6A;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --cond:"Barlow Condensed",system-ui,sans-serif;
+  --body:"Barlow",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text)}
+body{font-family:var(--body);font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;min-height:100vh;padding:clamp(12px,2vw,26px)}
+.wrap{max-width:900px;margin:0 auto}
+header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;
+  padding-bottom:9px;margin-bottom:14px;border-bottom:1px solid var(--rule)}
+h1{font-family:var(--cond);font-weight:600;font-size:clamp(19px,2.4vw,25px);
+  letter-spacing:.14em;text-transform:uppercase;margin:0}
+h1 span{color:var(--dim);font-weight:400}
+a.back{font-family:var(--mono);font-size:11px;color:var(--muted);text-decoration:none}
+a.back:hover{color:var(--text)}
+a.back.cur{color:var(--pv)}
+.link{margin-left:auto;display:flex;align-items:center;gap:9px;
+  font-family:var(--mono);font-size:11px;color:var(--muted)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--dim)}
+.dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(78,158,106,.16)}
+.dot.stale{background:var(--warn);box-shadow:0 0 0 3px rgba(210,105,74,.16)}
+
+.banner{background:var(--panel);border:1px solid var(--warn);border-radius:3px;
+  padding:13px 16px;margin-bottom:14px;font-family:var(--mono);font-size:12px;color:var(--warn)}
+
+button{font-family:var(--cond);font-size:12.5px;letter-spacing:.12em;
+  text-transform:uppercase;font-weight:600;background:var(--panel-2);
+  color:var(--text);border:1px solid var(--rule-lit);border-radius:2px;
+  padding:8px 15px;cursor:pointer}
+button:hover:not(:disabled){border-color:var(--text)}
+button:disabled{opacity:.35;cursor:not-allowed}
+button.go{border-color:var(--ok);color:var(--ok)}
+button.danger{border-color:var(--warn);color:var(--warn)}
+button.small{padding:4px 10px;font-size:11px}
+
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:3px;
+  padding:clamp(12px,1.8vw,18px);margin-bottom:14px}
+.card > h2{font-family:var(--cond);font-size:12px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--muted);margin:0 0 4px;font-weight:600}
+.card > .sub{font-family:var(--mono);font-size:10.5px;color:var(--dim);margin-bottom:14px}
+
+.dev{border:1px solid var(--rule);border-radius:3px;padding:12px;margin-bottom:10px;
+  background:var(--panel-2)}
+.dev.disabled{opacity:.5}
+.dev-hd{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.dev-hd .name{font-family:var(--cond);font-size:14px;letter-spacing:.06em;
+  text-transform:uppercase;flex:1}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+label{display:block;font-family:var(--mono);font-size:10px;color:var(--dim);
+  margin-bottom:3px;text-transform:uppercase;letter-spacing:.06em}
+input,select{width:100%;font-family:var(--mono);font-size:13px;
+  background:var(--bg);color:var(--text);border:1px solid var(--rule-lit);
+  border-radius:2px;padding:6px 9px}
+input:focus,select:focus{outline:none;border-color:var(--pv)}
+.field{margin-bottom:0}
+.chk{display:flex;align-items:center;gap:6px;font-family:var(--mono);
+  font-size:11px;color:var(--muted)}
+.chk input{width:auto}
+
+.log{font-family:var(--mono);font-size:11px;line-height:1.65;max-height:260px;
+  overflow:auto;color:var(--muted)}
+.log .ok{color:var(--ok)} .log .err{color:var(--warn)} .log .t{color:var(--dim)}
+
+.topics{font-family:var(--mono);font-size:11px;max-height:320px;overflow:auto}
+.topics table{width:100%;border-collapse:collapse}
+.topics th{text-align:left;color:var(--dim);font-weight:500;padding:4px 8px;
+  border-bottom:1px solid var(--rule);position:sticky;top:0;background:var(--panel)}
+.topics td{padding:4px 8px;border-bottom:1px solid var(--rule);vertical-align:top}
+.topics .topic{color:var(--pv);white-space:nowrap}
+.topics .payload{color:var(--muted);word-break:break-all}
+.topics .age{color:var(--dim);white-space:nowrap}
+
+.foot{display:flex;gap:10px;align-items:center;margin-top:14px;padding-top:12px;
+  border-top:1px solid var(--rule)}
+.foot .n{font-family:var(--mono);font-size:11px;color:var(--pv);flex:1}
+</style>
+</head>
+<body><div class="wrap">
+
+<header>
+  <h1>Config <span>/ angrycat</span></h1>
+  <a class="back" href="solar_dash.html">dashboard</a>
+  <a class="back" href="solar_settings.html">settings</a>
+  <a class="back cur" href="config.html">config</a>
+  <div class="link"><span class="dot" id="dot"></span><span id="linkTxt">connecting</span></div>
+</header>
+
+<div id="banner"></div>
+
+<div class="card">
+  <h2>Devices</h2>
+  <div class="sub">Pick each device's USB adapter from what's actually plugged in. Saving restarts the poller to apply.</div>
+  <div id="devices"></div>
+  <button id="addDev">+ Add device</button>
+</div>
+
+<div class="card">
+  <h2>Site</h2>
+  <div class="sub">Used by the solar forecast (Open-Meteo). Two decimal places is enough.</div>
+  <div class="grid">
+    <div class="field"><label>Latitude</label><input id="siteLat" type="number" step="0.0001" placeholder="32.7"></div>
+    <div class="field"><label>Longitude</label><input id="siteLon" type="number" step="0.0001" placeholder="-117.2"></div>
+    <div class="field"><label>Timezone</label><input id="siteTz" type="text" placeholder="America/Los_Angeles"></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Display scale</h2>
+  <div class="sub">Full-scale watts per flow, for sizing the dashboard's one-line diagram. Set these to roughly your system's ceiling.</div>
+  <div class="grid">
+    <div class="field"><label>Solar</label><input id="scalePv" type="number" step="1" placeholder="4000"></div>
+    <div class="field"><label>Grid</label><input id="scaleGrid" type="number" step="1" placeholder="8000"></div>
+    <div class="field"><label>Load</label><input id="scaleLoad" type="number" step="1" placeholder="6000"></div>
+    <div class="field"><label>Battery</label><input id="scaleBatt" type="number" step="1" placeholder="6000"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="foot" style="margin-top:0;padding-top:0;border-top:none">
+    <span class="n" id="saveNote"></span>
+    <button id="reloadBtn">Reload</button>
+    <button class="go" id="saveBtn">Save &amp; restart</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>MQTT topics</h2>
+  <div class="sub">Everything currently on the bus -- for checking the raw shape of a message, or that a device is actually publishing.</div>
+  <div class="topics"><table>
+    <thead><tr><th>Topic</th><th>Payload</th><th>Age</th></tr></thead>
+    <tbody id="topicsBody"></tbody>
+  </table></div>
+</div>
+
+<div class="card">
+  <h2>Activity</h2>
+  <div class="log" id="log"></div>
+</div>
+
+</div>
+
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+// This page's MQTT use (the topic browser below) is pure-read, so it
+// connects with no account at all -- mosquitto/acl grants anonymous
+// clients read on energy/# directly. Only solar_settings.html
+// authenticates, to publish writes.
+let SITE = {};
+
+/* Field sets per device type -- must match app/devconfig.py's TYPE_FIELDS.
+   [key, label, kind] where kind is "number" | "text" | "checkbox". */
+const TYPE_FIELDS = {
+  modbus: [["unit_id","Unit ID","number"],["baud","Baud","number"],
+           ["timeout","Timeout (s)","number"],["read_holding","Read holding","checkbox"]],
+  jbd:    [["baud","Baud","number"],["timeout","Timeout (s)","number"],
+           ["read_cells","Read cells","checkbox"]],
+  eg4ll:  [["unit_id","Unit ID","number"],["baud","Baud","number"],
+           ["timeout","Timeout (s)","number"]],
+};
+const TYPE_DEFAULTS = {
+  modbus: {unit_id:1, baud:19200, timeout:1.5, read_holding:true, role:"inverter",
+           register_map:"/config/eg4_6000xp_registers.yaml"},
+  jbd:    {baud:9600, timeout:2.0, read_cells:true, role:"battery"},
+  eg4ll:  {unit_id:2, baud:9600, timeout:2.0, role:"battery"},
+};
+
+let config = {site:{lat:null,lon:null,tz:"UTC"}, devices:[]};
+let discovered = [];
+
+function log(msg, cls=""){
+  const el = $("log");
+  const t = new Date().toLocaleTimeString();
+  el.insertAdjacentHTML("afterbegin",
+    `<div><span class="t">${t}</span> <span class="${cls}">${msg}</span></div>`);
+}
+
+function banner(msg, cls){
+  $("banner").innerHTML = msg ? `<div class="banner">${msg}</div>` : "";
+}
+
+/* ---------- API ---------- */
+async function api(method, path, body){
+  const res = await fetch(path, {
+    method, headers: body ? {"Content-Type":"application/json"} : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || (data && data.ok === false)){
+    throw new Error((data && data.error) || `${method} ${path}: HTTP ${res.status}`);
+  }
+  return data;
+}
+
+async function loadDiscovered(){
+  try { discovered = await api("GET", "/api/devices/discover"); }
+  catch (e) { log("discover failed: " + e.message, "err"); discovered = []; }
+}
+
+async function loadConfig(){
+  config = await api("GET", "/api/config");
+  if (!config.site) config.site = {lat:null, lon:null, tz:"UTC"};
+  if (!Array.isArray(config.devices)) config.devices = [];
+  if (!config.scale) config.scale = {pv:4000, grid:8000, load:6000, batt:6000};
+  render();
+}
+
+/* ---------- rendering ---------- */
+function portOptions(current){
+  const seen = new Set(discovered.map(d => d.port));
+  let opts = discovered.map(d =>
+    `<option value="${d.port}" ${d.port===current?"selected":""}>${d.port}${
+      d.assigned_to && d.assigned_to!==current ? ` (used by ${d.assigned_to})` : ""}</option>`);
+  if (current && !seen.has(current)){
+    opts.push(`<option value="${current}" selected>${current} (not currently detected)</option>`);
+  }
+  if (!current) opts.unshift(`<option value="">-- pick a device --</option>`);
+  return opts.join("");
+}
+
+function devCard(dev, i){
+  const fields = TYPE_FIELDS[dev.type] || [];
+  const fieldsHtml = fields.map(([k,label,kind]) => {
+    const val = dev[k] ?? "";
+    if (kind === "checkbox"){
+      return `<div class="field"><label>${label}</label>
+        <div class="chk"><input type="checkbox" data-f="${k}" ${val?"checked":""}> on</div></div>`;
+    }
+    return `<div class="field"><label>${label}</label>
+      <input type="${kind}" data-f="${k}" value="${val}" ${kind==="number"?'step="any"':""}></div>`;
+  }).join("");
+
+  return `<div class="dev ${dev.enabled===false?"disabled":""}" data-i="${i}">
+    <div class="dev-hd">
+      <input type="text" class="name" data-f="name" value="${dev.name||""}"
+        placeholder="e.g. inverter_1" style="max-width:220px">
+      <div class="chk"><input type="checkbox" data-f="enabled" ${dev.enabled!==false?"checked":""}> enabled</div>
+      <button class="small danger" data-act="remove">Remove</button>
+    </div>
+    <div class="grid">
+      <div class="field"><label>Type</label>
+        <select data-f="type">
+          ${Object.keys(TYPE_FIELDS).map(t=>`<option value="${t}" ${t===dev.type?"selected":""}>${t}</option>`).join("")}
+        </select></div>
+      <div class="field"><label>USB device</label>
+        <select data-f="port">${portOptions(dev.port)}</select></div>
+      <div class="field"><label>Model</label>
+        <input type="text" data-f="model" value="${dev.model||""}"></div>
+      <div class="field"><label>Location</label>
+        <input type="text" data-f="location" value="${dev.location||""}"></div>
+      <div class="field"><label>Poll interval (s)</label>
+        <input type="number" step="any" data-f="poll_interval" value="${dev.poll_interval ?? 10}"></div>
+      ${fieldsHtml}
+    </div>
+  </div>`;
+}
+
+function render(){
+  $("devices").innerHTML = config.devices.map(devCard).join("")
+    || '<div style="font-family:var(--mono);font-size:11px;color:var(--dim)">no devices configured yet</div>';
+  $("siteLat").value = config.site.lat ?? "";
+  $("siteLon").value = config.site.lon ?? "";
+  $("siteTz").value = config.site.tz || "";
+
+  $("scalePv").value = config.scale.pv ?? "";
+  $("scaleGrid").value = config.scale.grid ?? "";
+  $("scaleLoad").value = config.scale.load ?? "";
+  $("scaleBatt").value = config.scale.batt ?? "";
+
+  wireDeviceInputs();
+}
+
+function wireDeviceInputs(){
+  document.querySelectorAll(".dev").forEach(el => {
+    const i = +el.dataset.i;
+    el.querySelectorAll("[data-f]").forEach(inp => {
+      inp.addEventListener("change", () => {
+        const f = inp.dataset.f;
+        const dev = config.devices[i];
+        if (f === "type"){
+          // Swap in that type's default fields, keep name/port/location/model.
+          const kept = {name: dev.name, port: dev.port, model: dev.model,
+                        location: dev.location, poll_interval: dev.poll_interval,
+                        enabled: dev.enabled, tags: dev.tags || {}};
+          config.devices[i] = Object.assign({type: inp.value}, TYPE_DEFAULTS[inp.value], kept);
+          render();
+          return;
+        }
+        if (inp.type === "checkbox") dev[f] = inp.checked;
+        else if (inp.type === "number") dev[f] = inp.value === "" ? null : parseFloat(inp.value);
+        else dev[f] = inp.value;
+      });
+    });
+    el.querySelector('[data-act="remove"]').addEventListener("click", () => {
+      config.devices.splice(i, 1);
+      render();
+    });
+  });
+}
+
+$("addDev").addEventListener("click", () => {
+  config.devices.push(Object.assign(
+    {name: `device_${config.devices.length+1}`, type: "modbus", port: "",
+     enabled: true, model: "", location: "", poll_interval: 10, tags: {}},
+    TYPE_DEFAULTS.modbus));
+  render();
+});
+
+$("reloadBtn").addEventListener("click", async () => {
+  await loadDiscovered();
+  await loadConfig();
+  log("reloaded from the running config");
+});
+
+$("saveBtn").addEventListener("click", async () => {
+  config.site.lat = $("siteLat").value === "" ? null : parseFloat($("siteLat").value);
+  config.site.lon = $("siteLon").value === "" ? null : parseFloat($("siteLon").value);
+  config.site.tz = $("siteTz").value || "UTC";
+  config.scale = {
+    pv: parseFloat($("scalePv").value) || 4000,
+    grid: parseFloat($("scaleGrid").value) || 8000,
+    load: parseFloat($("scaleLoad").value) || 6000,
+    batt: parseFloat($("scaleBatt").value) || 6000,
+  };
+
+  $("saveBtn").disabled = true;
+  $("saveNote").textContent = "saving...";
+  try {
+    await api("PUT", "/api/config", config);
+    $("saveNote").textContent = "saved -- restarting to apply";
+    log("config saved, poller restarting", "ok");
+    banner("");
+    pollForRestart();
+  } catch (e) {
+    $("saveNote").textContent = "";
+    $("saveBtn").disabled = false;
+    log("save rejected: " + e.message, "err");
+    banner("Save rejected: " + e.message);
+  }
+});
+
+function pollForRestart(){
+  let tries = 0;
+  const iv = setInterval(async () => {
+    tries++;
+    try {
+      const s = await api("GET", "/api/status");
+      clearInterval(iv);
+      $("saveBtn").disabled = false;
+      $("saveNote").textContent = "";
+      if (s.ok) log(`back up -- polling ${s.devices.join(", ")}`, "ok");
+      else { log("restarted, but config is still invalid: " + s.error, "err"); banner("Config still invalid: " + s.error); }
+    } catch (e) {
+      if (tries > 30) { clearInterval(iv); $("saveBtn").disabled = false; $("saveNote").textContent = ""; log("gave up waiting for restart", "err"); }
+    }
+  }, 1000);
+}
+
+/* ---------- startup status check ---------- */
+async function checkStatus(){
+  try {
+    const s = await api("GET", "/api/status");
+    if (!s.ok) banner("Polling is not running: " + s.error);
+  } catch (e) { /* nginx/eg4poll not reachable yet -- MQTT connect state covers this */ }
+}
+
+/* ---------- MQTT: topic browser ---------- */
+const topics = {};   // topic -> {payload, ts}
+
+function renderTopics(){
+  const rows = Object.keys(topics).sort().map(t => {
+    const e = topics[t];
+    const age = Math.max(0, (Date.now() - e.ts) / 1000);
+    const ageTxt = age < 60 ? `${age.toFixed(0)}s` : `${(age/60).toFixed(0)}m`;
+    const payload = e.payload.length > 140 ? e.payload.slice(0,140) + "…" : e.payload;
+    return `<tr><td class="topic">${t}</td><td class="payload">${payload}</td><td class="age">${ageTxt}</td></tr>`;
+  }).join("");
+  $("topicsBody").innerHTML = rows || `<tr><td colspan="3" style="color:var(--dim)">nothing seen yet</td></tr>`;
+}
+setInterval(renderTopics, 2000);
+
+function connectMqtt(){
+  const broker = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/mqtt";
+  const client = mqtt.connect(broker, { reconnectPeriod: 4000 });
+  client.on("connect", () => {
+    $("dot").className = "dot on"; $("linkTxt").textContent = "live";
+    client.subscribe("energy/#");
+  });
+  client.on("close", () => { $("dot").className = "dot stale"; $("linkTxt").textContent = "offline"; });
+  client.on("error", e => log("mqtt: " + (e.message || e), "err"));
+  client.on("message", (topic, buf) => {
+    topics[topic] = {payload: buf.toString(), ts: Date.now()};
+  });
+}
+
+(async function init(){
+  try {
+    const res = await fetch("/api/site");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    SITE = await res.json();
+  } catch (e) {
+    log("could not load /api/site: " + (e.message || e), "err");
+  }
+  await loadDiscovered();
+  await loadConfig();
+  await checkStatus();
+  connectMqtt();
+  log("ready");
+})();
+</script>
+</body>
+</html>
