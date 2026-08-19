@@ -68,6 +68,10 @@ input,select{width:100%;font-family:var(--mono);font-size:13px;
   background:var(--bg);color:var(--text);border:1px solid var(--rule-lit);
   border-radius:2px;padding:6px 9px}
 input:focus,select:focus{outline:none;border-color:var(--pv)}
+/* Explicitly dimmed and italic -- an example value sitting in an empty
+   field (see the "e.g." wording on placeholders below) has to read as
+   obviously not-yet-entered at a glance, not like a saved real one. */
+input::placeholder{color:var(--dim);font-style:italic}
 .field{margin-bottom:0}
 .chk{display:flex;align-items:center;gap:6px;font-family:var(--mono);
   font-size:11px;color:var(--muted)}
@@ -114,9 +118,9 @@ input:focus,select:focus{outline:none;border-color:var(--pv)}
   <h2>Site</h2>
   <div class="sub">Used by the solar forecast (Open-Meteo). Two decimal places is enough.</div>
   <div class="grid">
-    <div class="field"><label>Latitude</label><input id="siteLat" type="number" step="0.0001" placeholder="32.7"></div>
-    <div class="field"><label>Longitude</label><input id="siteLon" type="number" step="0.0001" placeholder="-117.2"></div>
-    <div class="field"><label>Timezone</label><input id="siteTz" type="text" placeholder="America/Los_Angeles"></div>
+    <div class="field"><label>Latitude</label><input id="siteLat" type="number" step="0.0001" placeholder="e.g. 32.7"></div>
+    <div class="field"><label>Longitude</label><input id="siteLon" type="number" step="0.0001" placeholder="e.g. -117.2"></div>
+    <div class="field"><label>Timezone</label><input id="siteTz" type="text" placeholder="e.g. America/Los_Angeles"></div>
   </div>
 </div>
 
