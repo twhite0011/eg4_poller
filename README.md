@@ -211,7 +211,8 @@ through the web UI -- no Node-RED, no hand-edited device list.
 | `eg4poll`   | reads the devices; computes derived values (PV correction, energy integration, bank aggregation -- `app/derive.py`) and the solar forecast (`app/forecast.py`) in-process; publishes raw + derived state to MQTT; writes to InfluxDB directly; serves the Config API |
 | `mosquitto` | the broker. 1883 published to the LAN (for anything you wire up yourself externally), websockets internal-only |
 | `influxdb`  | local store for the dashboard -- 6-month retention, not a permanent record. Self-provisions its own org/bucket/username/password/admin token on first boot (`influx/entrypoint.sh`); nobody types any of them |
-| `nginx`     | serves `dashboard/` (including `config.html`), proxies `/mqtt`, `/influx`, and `/api` so the browser only needs one host |
+| `grafana`   | history graphing, embedded into `solar_dash.html` via iframe. Self-provisions its own InfluxDB datasource and starter dashboard (`grafana/provisioning/`); anonymous viewing, same as everything else read-only here |
+| `nginx`     | serves `dashboard/` (including `config.html`), proxies `/mqtt`, `/influx`, `/grafana`, and `/api` so the browser only needs one host |
 
 This image deliberately does not do Home Assistant discovery or export to
 any external/permanent store -- see `dashboard/config.html`'s "MQTT topics"
@@ -415,6 +416,37 @@ full. Chaining the Cubix pair makes the inverter see 200 of 300 Ah instead of
   grid-charge-to-100% that resyncs the counters more important, not less.
 
 ## Changelog
+
+### 1.1.0
+* **Grafana joined the stack for history graphing**, replacing the
+  dashboard's hand-rolled "last 24 hours" SVG chart. Self-provisions its
+  own InfluxDB datasource and starter dashboard on boot -- see
+  `grafana/entrypoint.sh`, `grafana/provisioning/` -- using its own
+  dedicated bucket-scoped read-only token, minted by `influx-init` the
+  same way nginx's dashboard-query token already was
+  (`influx/init-read-token.sh` now provisions both, independently and
+  idempotently). Proxied through nginx at `/grafana/`, same as InfluxDB
+  and the config API, so the browser still only ever knows one host, and
+  `solar_dash.html` embeds the panel via a `d-solo` iframe. Viewing is
+  anonymous (same philosophy as MQTT reads and the dashboard pages
+  themselves); editing still needs a real Grafana login
+  (`GF_SECURITY_ALLOW_EMBEDDING` is what makes the iframe possible at
+  all -- Grafana blocks framing by default). Adding another graph now is a
+  Flux query and a dashboard JSON entry (or the Grafana UI, exported back
+  into `grafana/provisioning/dashboards/json/`), not new page JS -- and
+  comes with real hover tooltips, zoom, and legend toggling for free.
+  Verified live: built natively on the Pi's own arm64 (no cross-compile
+  needed, unlike the `eg4poll` image), datasource and dashboard
+  provisioned with zero manual setup, panel renders real data through the
+  actual nginx-proxied path the browser uses, and hovering shows exact
+  per-series values at a timestamp.
+* Caught the same "config changed but the container wasn't recreated"
+  gotcha twice more this round: both `mosquitto`'s ACL fix earlier and
+  `nginx.conf`'s new `/grafana/` location are bind-mounted files, and
+  neither service's own definition changed, so `docker compose up -d`
+  didn't restart either automatically -- `docker compose restart
+  <service>` after any bind-mounted config change is worth remembering as
+  routine, not a one-off fix.
 
 ### 1.0.1
 * **Fixed the inverter clock drift/sync comparing local time against UTC
