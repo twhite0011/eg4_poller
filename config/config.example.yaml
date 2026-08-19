@@ -38,7 +38,6 @@ devices: []
 #   enabled: true
 #   model: EG4 6000XP
 #   role: inverter             # inverter | battery -- drives derive.py's branch
-#   location: garage
 #   port: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_XXXXXXXX-if00-port0
 #   baud: 19200
 #   unit_id: 1
@@ -52,7 +51,6 @@ devices: []
 #   enabled: true
 #   model: Eco-Worthy Cubix 100
 #   role: battery
-#   location: garage
 #   tags: {chemistry: LiFePO4, capacity_ah: 100}
 #   port: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_XXXXXXXX-if00-port0
 #   baud: 9600                 # HNJD default; try 115200 if silent
@@ -65,7 +63,6 @@ devices: []
 #   enabled: true
 #   model: EG4 LL-S 100Ah
 #   role: battery
-#   location: garage
 #   tags: {chemistry: LiFePO4, capacity_ah: 100}
 #   port: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_XXXXXXXX-if00-port0
 #   baud: 9600

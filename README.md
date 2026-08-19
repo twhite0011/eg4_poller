@@ -336,15 +336,14 @@ cubix_1, cubix_2, lls_1, lls_2
 ```
 
 Every envelope carries a `tags` object built from the device's config.
-`model`, `role`, and `location` are promoted automatically; anything under an
-explicit `tags:` mapping is passed through as well.
+`model` and `role` are promoted automatically; anything under an explicit
+`tags:` mapping is passed through as well.
 
 ```yaml
 - name: cubix_1
   type: jbd
   model: Eco-Worthy Cubix 100
   role: battery
-  location: garage
   tags:
     chemistry: LiFePO4
     capacity_ah: 100
@@ -356,7 +355,7 @@ publishes:
 ```json
 "tags": {
   "device": "cubix_1", "model": "Eco-Worthy Cubix 100",
-  "role": "battery", "location": "garage",
+  "role": "battery",
   "chemistry": "LiFePO4", "capacity_ah": 100, "installed": "2026-08"
 }
 ```

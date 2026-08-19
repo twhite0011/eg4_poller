@@ -334,6 +334,6 @@ def bank_join(state: DeriveState) -> dict | None:
     return {
         "fields": fields,
         "measurement": "bank",
-        "tags": {"role": "bank", "location": fresh[0]["tags"].get("location", "")},
+        "tags": {"role": "bank"},
         "tick_ts": newest,
     }

@@ -52,7 +52,7 @@ def _new_device(name: str, dtype: str, port: str) -> dict:
     d = {
         "name": name, "type": dtype, "enabled": True,
         "model": "", "role": "inverter" if dtype == "modbus" else "battery",
-        "location": "", "port": port,
+        "port": port,
         "poll_interval": DEFAULT_POLL_INTERVAL,
         "tags": {},
     }

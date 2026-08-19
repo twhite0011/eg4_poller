@@ -216,15 +216,18 @@ footer{margin-top:14px;font-family:var(--mono);font-size:10.5px;color:var(--dim)
 </div>
 
 <div class="card" style="margin-top:12px">
-  <h2>Last 24 hours</h2>
-  <!-- Grafana solo-panel embed, not this page's own chart -- hover
-       tooltips, zoom, and legend toggling come free from Grafana itself.
-       See grafana/provisioning/dashboards/json/energy_overview.json for
-       the panel; adding another graph here later is a Flux query and a
+  <!-- Full Grafana dashboard embed (not d-solo) with a bare &kiosk -- that
+       hides the breadcrumb/nav chrome but keeps the dashboard's own time
+       range picker and refresh control, so the window is adjustable here
+       instead of fixed at 24h. No page-level <h2> above it: the picker's
+       own label ("Last 24 hours" etc.) already says what window is showing,
+       and would go stale next to a hardcoded heading the moment someone
+       changes it. See grafana/provisioning/dashboards/json/energy_overview.json
+       for the panel; adding another graph here later is a Flux query and a
        panelId, not new JS. Proxied through nginx at /grafana/ (see
        nginx/nginx.conf) so this is same-origin, no CORS/cert story. -->
-  <iframe id="ovFrame" class="chart" style="border:0;width:100%;height:300px"
-    src="/grafana/d-solo/energy-overview/energy-overview?orgId=1&panelId=1&theme=dark&from=now-24h&to=now&refresh=1m"
+  <iframe id="ovFrame" class="chart" style="border:0;width:100%;height:340px"
+    src="/grafana/d/energy-overview/energy-overview?orgId=1&kiosk&theme=dark&from=now-24h&to=now"
     loading="lazy"></iframe>
 </div>
 

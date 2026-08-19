@@ -557,7 +557,7 @@ class Runner:
             tags = dict(dev_cfg.get("tags", {}))
             # Promote a few common fields so they don't have to be duplicated
             # under tags:. Explicit tags win.
-            for k in ("model", "role", "location"):
+            for k in ("model", "role"):
                 if k in dev_cfg and k not in tags:
                     tags[k] = dev_cfg[k]
             tags.setdefault("device", name)

@@ -9,7 +9,7 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "Last 24 hours",
+      "title": "Power",
       "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
       "datasource": { "type": "influxdb", "uid": "influxdb" },
       "targets": [

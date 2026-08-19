@@ -262,8 +262,6 @@ function devCard(dev, i){
         <select data-f="port">${portOptions(dev.port)}</select></div>
       <div class="field"><label>Model</label>
         <input type="text" data-f="model" value="${dev.model||""}"></div>
-      <div class="field"><label>Location</label>
-        <input type="text" data-f="location" value="${dev.location||""}"></div>
       <div class="field"><label>Poll interval (s)</label>
         <input type="number" step="any" data-f="poll_interval" value="${dev.poll_interval ?? 10}"></div>
       ${fieldsHtml}
@@ -294,9 +292,9 @@ function wireDeviceInputs(){
         const f = inp.dataset.f;
         const dev = config.devices[i];
         if (f === "type"){
-          // Swap in that type's default fields, keep name/port/location/model.
+          // Swap in that type's default fields, keep name/port/model.
           const kept = {name: dev.name, port: dev.port, model: dev.model,
-                        location: dev.location, poll_interval: dev.poll_interval,
+                        poll_interval: dev.poll_interval,
                         enabled: dev.enabled, tags: dev.tags || {}};
           config.devices[i] = Object.assign({type: inp.value}, TYPE_DEFAULTS[inp.value], kept);
           render();
@@ -317,7 +315,7 @@ function wireDeviceInputs(){
 $("addDev").addEventListener("click", () => {
   config.devices.push(Object.assign(
     {name: `device_${config.devices.length+1}`, type: "modbus", port: "",
-     enabled: true, model: "", location: "", poll_interval: 10, tags: {}},
+     enabled: true, model: "", poll_interval: 10, tags: {}},
     TYPE_DEFAULTS.modbus));
   render();
 });
