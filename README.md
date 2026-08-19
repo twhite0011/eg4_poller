@@ -417,6 +417,26 @@ full. Chaining the Cubix pair makes the inverter see 200 of 300 Ah instead of
 ## Changelog
 
 ### 1.1.0
+* **The dashboard's Grafana panel now has an adjustable time range**,
+  instead of being fixed at 24h. Switched the embed from a solo panel
+  (`/grafana/d-solo/...`, which strips all Grafana chrome including the
+  time picker) to the full dashboard with a bare `&kiosk` (`/grafana/d/...`)
+  -- that hides the breadcrumb/nav but keeps the dashboard's own time
+  range picker and refresh control, both fully interactive from inside
+  the iframe. Renamed the panel's own hardcoded "Last 24 hours" title to
+  "Power", since it would otherwise go stale the moment someone picks a
+  different range from the now-visible picker. Verified live: the picker
+  opens and its "Last 6 hours" etc. options are real, not just text.
+* **Removed `location` from the device schema.** It was carried over from
+  an earlier draft aimed at Home Assistant area assignment, which this
+  project explicitly never implements -- nothing ever read it except to
+  copy it into the `bank` measurement's tags, which read a value that was
+  always empty in practice. Removed from the Config page's device form,
+  `devconfig.py`'s new-device template, `poller.py`'s tag promotion,
+  `derive.py`'s bank-tags construction, and the tracked schema-reference
+  template. Existing saved configs still carrying a stale `location: ""`
+  aren't touched automatically (nothing reads it, so it's inert) --
+  cleared on the live deployment by hand, via a direct `PUT /api/config`.
 * **Grafana joined the stack for history graphing**, replacing the
   dashboard's hand-rolled "last 24 hours" SVG chart. Self-provisions its
   own InfluxDB datasource and starter dashboard on boot -- see
