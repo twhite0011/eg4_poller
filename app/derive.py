@@ -25,8 +25,12 @@ def _r(x, n: int) -> float | None:
     in the original Node-RED function and its Math.round(x * 10**n) / 10**n
     idiom. (Python's round() uses round-half-to-even at exact .5 boundaries
     where JS rounds half-away-from-zero; real sensor floats essentially
-    never land exactly on that boundary, so the difference is immaterial.)"""
-    return None if x is None else round(x, n)
+    never land exactly on that boundary, so the difference is immaterial.)
+    float(x) before round(): round() on a plain int input returns an int,
+    not a rounded float -- values here can originate as ints (register
+    reads, JSON), and a field that's an int one tick and a float the next
+    is exactly what trips InfluxDB's per-field type lock."""
+    return None if x is None else round(float(x), n)
 
 
 # PV current correction for the EG4 6000XP. This inverter has NO PV current
@@ -162,8 +166,18 @@ def transform(state: DeriveState, envelope: dict) -> dict | None:
             saw_pv = True
             pv_total_raw += pp
             if pv < PV_MIN_V:
-                add(f"pv{n}_current_corrected", 0)
-                add(f"pv{n}_power_corrected", 0)
+                # 0.0, not 0: the normal path below (PV above threshold)
+                # always writes a float here via _r(). A bare int 0 -- which
+                # is exactly what every night/low-light tick would send --
+                # conflicts with that float in InfluxDB's per-field type
+                # lock, and since these share a point with pv_total_w_corrected/
+                # grid_power/eps_power (one line-protocol line per tick),
+                # a single conflicting field drops the WHOLE point, not just
+                # this one -- which is why grid/PV/load all went missing
+                # together while bank (a separate measurement/point) kept
+                # writing fine.
+                add(f"pv{n}_current_corrected", 0.0)
+                add(f"pv{n}_power_corrected", 0.0)
                 continue
             raw_a = pp / pv
             corr_a = max(0.0, PV_SLOPE * raw_a + PV_INTERCEPT)

@@ -62,7 +62,20 @@ GTI_FLOOR = 15  # below this the model is noise: low sun, MPPT not started
 
 
 def _r(x, n):
-    return None if x is None else round(x, n)
+    # float() before round(): round() on a plain int input returns an int,
+    # not a rounded float -- and these values come from Open-Meteo's raw
+    # JSON, where a whole-number reading (very common: cloud cover, night-
+    # time irradiance) parses as a Python int. A field that's an int this
+    # hour and a float the next is exactly what trips InfluxDB's per-field
+    # type lock (see remaining_ah/temperatures_c's identical bug in
+    # app/eg4ll.py).
+    return None if x is None else round(float(x), n)
+
+
+def _f(x):
+    """Same float-safety as _r(), for fields that pass straight through
+    from Open-Meteo with no rounding of their own (ghi/dni/dhi/cloud/t_air)."""
+    return None if x is None else float(x)
 
 
 async def fetch_raw(session: aiohttp.ClientSession, lat: float, lon: float, tz: str) -> dict:
@@ -135,11 +148,11 @@ def model(raw: dict, tz: str) -> dict:
             "dt": local_dt,
             "day": local_dt.date(),
             "gti": _r(gti, 1),
-            "ghi": (hourly.get("shortwave_radiation") or [None] * len(times))[i],
-            "dni": (hourly.get("direct_normal_irradiance") or [None] * len(times))[i],
-            "dhi": (hourly.get("diffuse_radiation") or [None] * len(times))[i],
-            "cloud": (hourly.get("cloud_cover") or [None] * len(times))[i],
-            "t_air": t_air,
+            "ghi": _f((hourly.get("shortwave_radiation") or [None] * len(times))[i]),
+            "dni": _f((hourly.get("direct_normal_irradiance") or [None] * len(times))[i]),
+            "dhi": _f((hourly.get("diffuse_radiation") or [None] * len(times))[i]),
+            "cloud": _f((hourly.get("cloud_cover") or [None] * len(times))[i]),
+            "t_air": _f(t_air),
             "t_cell": _r(t_cell, 1) if t_cell is not None else None,
             "w": _r(w, 1),
         })
@@ -165,10 +178,15 @@ def model(raw: dict, tz: str) -> dict:
             break
 
     fields = {
-        "forecast_w": cur["w"] if cur else 0,
-        "forecast_w_next": nxt["w"] if nxt else 0,
-        "gti": cur["gti"] if cur else 0,
-        "ghi": cur["ghi"] if cur else 0,
+        # 0.0, not 0 -- these are float fields once a current/next point
+        # exists; falling back to a bare int here on the (rare) edge case
+        # of no matching hour would be the same type flip _f()/_r() above
+        # exist to prevent, just triggered by absence instead of a zero
+        # reading.
+        "forecast_w": cur["w"] if cur else 0.0,
+        "forecast_w_next": nxt["w"] if nxt else 0.0,
+        "gti": cur["gti"] if cur else 0.0,
+        "ghi": cur["ghi"] if cur else 0.0,
         "cloud_cover": cur["cloud"] if cur else None,
         "t_air": cur["t_air"] if cur else None,
         "t_cell": cur["t_cell"] if cur else None,
@@ -187,8 +205,15 @@ def model(raw: dict, tz: str) -> dict:
         "timestamp": p["dt"],
         "tags": {"role": "forecast", "source": "open-meteo"},
         "fields": {
-            "w": p["w"], "gti": p["gti"], "ghi": p["ghi"] or 0,
-            "cloud": p["cloud"] or 0, "t_air": p["t_air"] or 0, "t_cell": p["t_cell"] or 0,
+            # `or 0` would substitute a bare int 0 whenever the real value is
+            # exactly 0.0 (falsy) -- cloud cover and nighttime irradiance are
+            # both routinely exactly zero, so that pattern reintroduces the
+            # same int/float type flip _f()/_r() above exist to prevent.
+            "w": p["w"], "gti": p["gti"],
+            "ghi": p["ghi"] if p["ghi"] is not None else 0.0,
+            "cloud": p["cloud"] if p["cloud"] is not None else 0.0,
+            "t_air": p["t_air"] if p["t_air"] is not None else 0.0,
+            "t_cell": p["t_cell"] if p["t_cell"] is not None else 0.0,
         },
     } for p in series]
 
