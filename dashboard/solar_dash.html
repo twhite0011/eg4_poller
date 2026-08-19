@@ -191,7 +191,11 @@ footer{margin-top:14px;font-family:var(--mono);font-size:10.5px;color:var(--dim)
           <circle class="arc-fg" id="aBatt" r="40" stroke="var(--batt)" style="stroke-dasharray:0 500;transform:rotate(-215deg)"/>
           <text class="nval" y="-4" text-anchor="middle" id="vBatt">0</text>
           <text class="nunit" y="9" text-anchor="middle">W</text>
-          <text class="nsub" y="25" text-anchor="middle" id="vSoc">—</text>
+          <!-- y=42 clears the ring's own bottom edge (r=40 + ~2px stroke) --
+               the old y=25 sat well inside the radius, so a wide string like
+               "51% · discharging" crossed behind the arc stroke on both
+               sides instead of sitting below it. -->
+          <text class="nsub" y="42" text-anchor="middle" id="vSoc">—</text>
           <text class="nlabel" y="-51" text-anchor="middle">Battery</text></g>
       </svg>
     </div>
@@ -226,7 +230,7 @@ footer{margin-top:14px;font-family:var(--mono);font-size:10.5px;color:var(--dim)
        for the panel; adding another graph here later is a Flux query and a
        panelId, not new JS. Proxied through nginx at /grafana/ (see
        nginx/nginx.conf) so this is same-origin, no CORS/cert story. -->
-  <iframe id="ovFrame" class="chart" style="border:0;width:100%;height:340px"
+  <iframe id="ovFrame" class="chart" style="border:0;width:100%;height:470px"
     src="/grafana/d/energy-overview/energy-overview?orgId=1&kiosk&theme=dark&from=now-24h&to=now"
     loading="lazy"></iframe>
 </div>
@@ -627,9 +631,10 @@ function render(){
     const mean = den ? num/den : ohBuf[ohBuf.length-1].w;
     const span = Math.round(last - ohBuf[0].t);
     const bad = loadUnknown();
-    $("invOh").textContent = bad
-      ? "overhead — load unknown"
-      : `${fmtW(mean)} W overhead · ${span}s · ${ohBuf.length}n`;
+    // Diagram box is ~128px -- "· 118s · 24n" alone is wider than that at
+    // steady state, so the sample-window detail lives in the hover title
+    // instead of the inline text (which matches $("tOh")'s shorter form).
+    $("invOh").textContent = bad ? "overhead — load unknown" : `${fmtW(mean)} W overhead`;
     $("tOh").textContent = bad ? "load unknown" : `${fmtW(mean)} W overhead`;
     // The component terms, for when the number looks wrong.
     $("invOh").title = bad
@@ -638,7 +643,8 @@ function render(){
       : `pv ${fmtW(pv)} + grid ${fmtW(Math.max(0,grid))} + batt-out `
         + `${fmtW(Math.max(0,-bw))}\n  = ${fmtW(pv+Math.max(0,grid)+Math.max(0,-bw))} in\n`
         + `load ${fmtW(load)} + batt-in ${fmtW(Math.max(0,bw))}\n`
-        + `  = ${fmtW(load+Math.max(0,bw))} out`;
+        + `  = ${fmtW(load+Math.max(0,bw))} out\n`
+        + `averaged over ${span}s (${ohBuf.length} samples)`;
   } else {
     // Self-describing failure. "—" tells you nothing; each of these points at
     // exactly one missing input.
