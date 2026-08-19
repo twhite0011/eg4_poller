@@ -417,6 +417,19 @@ full. Chaining the Cubix pair makes the inverter see 200 of 300 Ah instead of
 ## Changelog
 
 ### 1.1.0
+* **Made empty vs. filled-in unmistakable on the Config page's Site
+  fields.** Latitude/longitude had no `::placeholder` styling at all, so
+  their example text (`32.7`, `-117.2` -- real-looking coordinates,
+  chosen to demonstrate the expected precision) rendered close enough to
+  real input that it read as an already-saved value at a glance, which is
+  exactly backwards from a hint's job. Site lat/lon actually being unset
+  is also why the forecast tile sits at "awaiting forecast" indefinitely
+  -- nothing was wrong with forecast fetching, the coordinates it needs
+  were simply never saved. Placeholders are now explicitly dimmed and
+  italic (matches the timezone field's real saved value staying bold
+  white right next to them), and reworded to `e.g. 32.7` /
+  `e.g. -117.2`, matching the "e.g. inverter_1" convention this same page
+  already uses for its device-name field.
 * **The dashboard's Grafana panel now has an adjustable time range**,
   instead of being fixed at 24h. Switched the embed from a solo panel
   (`/grafana/d-solo/...`, which strips all Grafana chrome including the
