@@ -1,0 +1,62 @@
+{
+  "uid": "energy-overview",
+  "title": "Energy overview",
+  "timezone": "browser",
+  "editable": true,
+  "time": { "from": "now-24h", "to": "now" },
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Last 24 hours",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"energy\")\n  |> range(start: -24h)\n  |> filter(fn: (r) =>\n       (r._measurement == \"inverter\" and (r._field == \"pv_total_w_corrected\" or r._field == \"grid_power\" or r._field == \"eps_power\"))\n    or (r._measurement == \"bank\" and r._field == \"power_w\"))\n  |> aggregateWindow(every: 5m, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_field\", \"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1.5,
+            "fillOpacity": 6,
+            "pointSize": 0,
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "pv_total_w_corrected" },
+            "properties": [
+              { "id": "displayName", "value": "Solar" },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#E8B33C" } },
+              { "id": "custom.lineWidth", "value": 2 }
+            ] },
+          { "matcher": { "id": "byName", "options": "eps_power" },
+            "properties": [
+              { "id": "displayName", "value": "Load" },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#F0F3F5" } }
+            ] },
+          { "matcher": { "id": "byName", "options": "power_w" },
+            "properties": [
+              { "id": "displayName", "value": "Battery" },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#3FA7A0" } }
+            ] },
+          { "matcher": { "id": "byName", "options": "grid_power" },
+            "properties": [
+              { "id": "displayName", "value": "Grid" },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#7C90B5" } }
+            ] }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] }
+      }
+    }
+  ]
+}

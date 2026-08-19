@@ -172,15 +172,16 @@ LOCAL_CODE="$(cat app/*.py | sha256sum | cut -c1-12)"
 # ------------------------------------------------------------ 4. poller host
 c "deploying to $POLLER_HOST"
 # --delete keeps the remote a mirror, so a file removed here is removed there.
-# .env is excluded: it lives only on the Pi. mosquitto/influx/nginx are part
-# of the same compose stack (nginx serves the dashboard locally), so they
-# sync alongside app/config. The device/site config itself (app/devconfig.py)
-# is NOT synced -- it lives on a Docker volume on the remote host, managed
-# through the Config page, not through this repo. Nothing dashboard-side is
-# site-specific anymore either (see app/webapp.py's get_site()), so there is
-# nothing under dashboard/ left to exclude.
+# .env is excluded: it lives only on the Pi. mosquitto/influx/nginx/grafana
+# are part of the same compose stack (nginx serves the dashboard locally),
+# so they sync alongside app/config. The device/site config itself
+# (app/devconfig.py) is NOT synced -- it lives on a Docker volume on the
+# remote host, managed through the Config page, not through this repo.
+# Nothing dashboard-side is site-specific anymore either (see
+# app/webapp.py's get_site()), so there is nothing under dashboard/ left
+# to exclude.
 run "rsync -a --delete --exclude='.env' --exclude='.git' --exclude='__pycache__' \
-     app config tools dashboard mosquitto influx nginx \
+     app config tools dashboard mosquitto influx nginx grafana \
      docker-compose.yml Dockerfile requirements.txt \
      '$POLLER_HOST:$POLLER_DIR/'"
 ok "files synced"

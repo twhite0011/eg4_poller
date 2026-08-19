@@ -1,0 +1,13 @@
+# Auto-loads every dashboard JSON file under json/ on boot. Adding a new
+# graph is: drop a dashboard JSON here (or edit in the UI and export it
+# back into this folder) -- no separate registration step.
+apiVersion: 1
+
+providers:
+  - name: eg4poll
+    folder: ""
+    type: file
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/json

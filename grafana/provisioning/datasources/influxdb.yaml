@@ -1,0 +1,22 @@
+# Provisions the InfluxDB datasource on boot -- nobody clicks through the
+# UI to set this up. org/bucket are the same fixed constants as everywhere
+# else in this stack (see influx/entrypoint.sh); the token is read from
+# GF_INFLUX_TOKEN, which entrypoint.sh exports from a Docker volume file
+# influx-init wrote, never typed here or in .env.
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB
+    uid: influxdb
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    isDefault: true
+    jsonData:
+      version: Flux
+      organization: eg4poll
+      defaultBucket: energy
+      httpHeaderName1: Authorization
+    secureJsonData:
+      httpHeaderValue1: Token ${GF_INFLUX_TOKEN}
+    editable: false

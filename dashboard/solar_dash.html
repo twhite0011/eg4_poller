@@ -217,14 +217,15 @@ footer{margin-top:14px;font-family:var(--mono);font-size:10.5px;color:var(--dim)
 
 <div class="card" style="margin-top:12px">
   <h2>Last 24 hours</h2>
-  <svg id="ov" class="chart" viewBox="0 0 1440 300" preserveAspectRatio="none"></svg>
-  <div class="legend2">
-    <div><i style="background:var(--pv)"></i>Solar</div>
-    <div><i style="background:var(--load)"></i>Load</div>
-    <div><i style="background:var(--batt)"></i>Battery</div>
-    <div><i style="background:var(--grid)"></i>Grid</div>
-    <div style="margin-left:auto" id="ovNote"></div>
-  </div>
+  <!-- Grafana solo-panel embed, not this page's own chart -- hover
+       tooltips, zoom, and legend toggling come free from Grafana itself.
+       See grafana/provisioning/dashboards/json/energy_overview.json for
+       the panel; adding another graph here later is a Flux query and a
+       panelId, not new JS. Proxied through nginx at /grafana/ (see
+       nginx/nginx.conf) so this is same-origin, no CORS/cert story. -->
+  <iframe id="ovFrame" class="chart" style="border:0;width:100%;height:300px"
+    src="/grafana/d-solo/energy-overview/energy-overview?orgId=1&panelId=1&theme=dark&from=now-24h&to=now&refresh=1m"
+    loading="lazy"></iframe>
 </div>
 
 <div class="packs" id="packs"></div>
@@ -312,7 +313,6 @@ const H = {
   pvDayKwh: 0,        // sum of pv_energy_wh_delta since local midnight
   pvPeak: 0,          // max pv_total_w_corrected today
   battInKwh: 0, battOutKwh: 0,
-  overview: [],       // [{t, pv, load, batt, grid}] last 24 h
   fcHours: [],        // [{h, w, cloud}] today's forecast, from Influx
   ok: false, err: "",
 };
@@ -400,17 +400,6 @@ from(bucket:"${CFG.influx.bucket}")
   |> filter(fn:(r)=> r._measurement=="forecast_hourly" and
        (r._field=="w" or r._field=="cloud"))
   |> keep(columns:["_time","_field","_value"])`,
-
-  // 24 h overview at 5 min resolution: 288 points x 4 series.
-  overview: `${TZ}
-from(bucket:"${CFG.influx.bucket}")
-  |> range(start: -24h)
-  |> filter(fn:(r)=>
-       (r._measurement=="inverter" and (r._field=="pv_total_w_corrected"
-          or r._field=="grid_power" or r._field=="eps_power"))
-    or (r._measurement=="bank" and r._field=="power_w"))
-  |> aggregateWindow(every:5m, fn:mean, createEmpty:false)
-  |> keep(columns:["_time","_field","_value"])`,
   };
 }
 
@@ -444,8 +433,8 @@ function parseCsv(text){
 
 async function loadHistory(){
   try {
-    const [hrs, tot, ov, fc] = await Promise.all([
-      flux(Q.pvHours), flux(Q.totals), flux(Q.overview), flux(Q.forecast)]);
+    const [hrs, tot, fc] = await Promise.all([
+      flux(Q.pvHours), flux(Q.totals), flux(Q.forecast)]);
 
     H.pvHours = {};
     for (const r of hrs){
@@ -461,14 +450,6 @@ async function loadHistory(){
       else if (r._field === "energy_in_wh_delta")  H.battInKwh  = v/1000;
       else if (r._field === "energy_out_wh_delta") H.battOutKwh = v/1000;
     }
-
-    const by = {};
-    for (const r of ov){
-      if (!r._time || r._value === "") continue;
-      const t = new Date(r._time).getTime();
-      (by[t] = by[t] || {t})[r._field] = parseFloat(r._value);
-    }
-    H.overview = Object.values(by).sort((a,b)=>a.t-b.t);
 
     const fh = {};
     for (const r of fc){
@@ -580,72 +561,6 @@ function drawForecast(){
 /* =========================================================================
    24 h overview
    ========================================================================= */
-function drawOverview(){
-  const svg = $("ov");
-  if (!H.overview.length){
-    svg.innerHTML = "";
-    $("ovNote").textContent = H.ok ? "no data in range" : "history unavailable";
-    return;
-  }
-  const W=1440,Hh=300,L=52,R=14,T=10,B=24;
-  const iw=W-L-R, ih=Hh-T-B;
-  const d = H.overview;
-  const t0=d[0].t, t1=d[d.length-1].t;
-
-  // Battery is signed; everything else is not. A symmetric scale would waste
-  // half the panel, so the axis spans the actual min and max across all series.
-  let lo=0, hi=0;
-  const SER = [
-    ["pv_total_w_corrected","var(--pv)",2],
-    ["eps_power","var(--load)",1.5],
-    ["power_w","var(--batt)",1.5],
-    ["grid_power","var(--grid)",1.5],
-  ];
-  for (const p of d) for (const [k] of SER){
-    const v=p[k]; if (v==null||!isFinite(v)) continue;
-    if (v<lo) lo=v; if (v>hi) hi=v;
-  }
-  hi = Math.max(hi, 500); lo = Math.min(lo, 0);
-  const pad=(hi-lo)*0.08; hi+=pad; lo-=pad;
-
-  const x = t => L + ((t-t0)/((t1-t0)||1))*iw;
-  const y = v => T + ih - ((v-lo)/((hi-lo)||1))*ih;
-
-  let g="";
-  for (let i=0;i<=4;i++){
-    const v = hi - (hi-lo)*i/4, yy = y(v);
-    g += `<line class="gridline" x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}"/>`;
-    g += `<text class="axis" x="${L-6}" y="${yy+3}" text-anchor="end">${
-      Math.abs(v)>=1000 ? (v/1000).toFixed(1)+"k" : Math.round(v)}</text>`;
-  }
-  if (lo < 0){   // zero line, so charge/discharge is readable at a glance
-    g += `<line x1="${L}" y1="${y(0)}" x2="${W-R}" y2="${y(0)}"
-            stroke="var(--rule-lit)" stroke-width="1"/>`;
-  }
-  // hour ticks every 3 h, on the hour
-  for (let t=Math.ceil(t0/36e5)*36e5; t<=t1; t+=3*36e5){
-    const dt=new Date(t);
-    g += `<text class="axis" x="${x(t)}" y="${Hh-7}" text-anchor="middle">${
-      String(dt.getHours()).padStart(2,"0")}:00</text>`;
-  }
-
-  // Solar filled, the rest as lines. Filling more than one would make the
-  // overlaps unreadable.
-  const path = k => d.filter(p=>p[k]!=null&&isFinite(p[k]))
-                     .map(p=>`${x(p.t).toFixed(1)},${y(p[k]).toFixed(1)}`).join(" ");
-  const pvp = path("pv_total_w_corrected");
-  if (pvp) g += `<polygon points="${x(t0)},${y(0)} ${pvp} ${x(t1)},${y(0)}"
-                   fill="var(--pv)" opacity=".14"/>`;
-  for (const [k,c,w] of SER){
-    const p = path(k);
-    if (p) g += `<polyline points="${p}" fill="none" stroke="${c}" stroke-width="${w}"
-                   stroke-linejoin="round" opacity=".92"/>`;
-  }
-  svg.innerHTML = g;
-  $("ovNote").textContent = `${d.length} pts · 5 min · updated ${
-    new Date().toLocaleTimeString()}`;
-}
-
 /* =========================================================================
    Render
    ========================================================================= */
@@ -743,7 +658,7 @@ function render(){
   $("tSoc").textContent = soc==null ? "—" : soc.toFixed(0)+"%";
   $("tRate").textContent = bank ? `${bw>=0?"+":""}${fmtW(bw)} W` : "—";
 
-  renderPacks(); renderFooter(); drawForecast(); drawOverview();
+  renderPacks(); renderFooter(); drawForecast();
 }
 
 function packCard(id,d){

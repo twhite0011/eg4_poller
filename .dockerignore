@@ -33,6 +33,7 @@ tools/
 mosquitto/
 influx/
 nginx/
+grafana/
 
 # git
 .gitignore

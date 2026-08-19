@@ -81,6 +81,40 @@ services:
       - ./influx/init-read-token.sh:/init-read-token.sh:ro
 
   # --------------------------------------------------------------------
+  # grafana: graphing for the dashboard's history tiles. Self-provisions
+  # its own InfluxDB datasource and starter dashboard on boot -- see
+  # grafana/entrypoint.sh, grafana/provisioning/. Not published to the
+  # LAN; nginx proxies it at /grafana/ the same way it proxies InfluxDB
+  # queries and eg4poll's config API, so the browser only ever knows one
+  # host, and solar_dash.html embeds a panel from it via iframe.
+  # --------------------------------------------------------------------
+  grafana:
+    build: ./grafana
+    container_name: eg4-grafana
+    restart: unless-stopped
+    depends_on:
+      influx-init:
+        condition: service_completed_successfully
+    environment:
+      # Viewing is open, same as everything else read-only in this stack
+      # (MQTT reads, the dashboard pages); editing still needs a real
+      # Grafana login. GF_SECURITY_ALLOW_EMBEDDING is required for the
+      # solo-panel iframe -- Grafana blocks framing by default.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      # Read-only: this is where influx-init wrote Grafana's own
+      # bucket-scoped read-only token. Not writable from here -- grafana
+      # only ever reads it.
+      - influx_shared:/influx-shared:ro
+
+  # --------------------------------------------------------------------
   # nginx: serves the dashboard pages, proxies MQTT-over-websockets and
   # InfluxDB queries, and proxies eg4poll's own config API -- so the
   # browser only ever has to know this one host.
@@ -94,6 +128,8 @@ services:
         condition: service_started
       influx-init:
         condition: service_completed_successfully
+      grafana:
+        condition: service_started
       eg4poll:
         condition: service_started
     ports:
@@ -209,6 +245,7 @@ volumes:
   mosquitto_config:   # generated passwd file only -- mosquitto.conf/acl are bind-mounted
   mosquitto_data:
   influxdb_data:
-  influx_shared:       # influxdb -> influx-init/eg4poll: admin token (eg4poll) and, via influx-init, the dashboard's read-only Influx token (nginx)
+  influx_shared:       # influxdb -> influx-init/eg4poll: admin token (eg4poll) and, via influx-init, the dashboard's (nginx) and Grafana's read-only Influx tokens
   mqtt_shared:         # mosquitto-init -> eg4poll: the poller account's generated password
   eg4poll_config:       # the web-managed device/site config -- see app/devconfig.py
+  grafana_data:        # Grafana's own sqlite db (sessions, provisioned dashboard state) -- not user config, nothing here is tracked
