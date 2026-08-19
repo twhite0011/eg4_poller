@@ -426,6 +426,23 @@ full. Chaining the Cubix pair makes the inverter see 200 of 300 Ah instead of
 ## Changelog
 
 ### 1.0.1
+* **Fixed the inverter clock drift/sync comparing local time against UTC
+  as if they were the same clock.** The clock registers carry no zone --
+  the LCD is set to site-local time -- but `datetime.now()` with no
+  argument returns the CONTAINER's clock, which is UTC in this image (no
+  `TZ` set). Comparing the two naively meant "drift" was always just the
+  site's UTC offset (a Pacific site read exactly -420 minutes, regardless
+  of the inverter's actual clock), and, worse, `sync_time()` (the "Sync to
+  now" button) wrote the container's UTC time directly into the inverter's
+  real registers -- had it ever been used, it would have silently set the
+  inverter's clock 7 hours off, which is what AC charge windows are
+  scheduled against. Both now use the site's configured tz
+  (`app/poller.py`'s `InverterDevice` takes it from `site_cfg`) via
+  `zoneinfo.ZoneInfo`, same fix pattern already used in `app/forecast.py`
+  for the equivalent Open-Meteo timestamp bug. Verified live: drift
+  dropped from -420min to a real -9s RTC drift, and `sync_time()` was
+  proven correct against the site's actual local clock before the fix
+  reached the Pi.
 * **Fixed a broker ACL gap that silently blocked both real writes and the
   settings page's display.** `mosquitto/acl`'s global (no-`user`) read
   rule only applies to truly anonymous clients -- verified live (mosquitto
