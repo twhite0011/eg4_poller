@@ -3,15 +3,6 @@
 Reads the inverter over RS485 Modbus RTU and publishes one JSON blob per
 poll to MQTT. Read-only. Replaces Solar Assistant as the Modbus master.
 
-## Before you start
-
-**Solar Assistant must be stopped.** Two Modbus masters on one RS485 bus
-collide. This is a cutover, not a parallel run.
-
-```bash
-sudo systemctl stop solar-assistant     # verify the actual unit name
-```
-
 ## 1. Serial devices need no manual setup
 
 `/dev/ttyUSB0` is not stable across reboots with multiple adapters, but
