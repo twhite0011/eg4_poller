@@ -417,18 +417,66 @@ full. Chaining the Cubix pair makes the inverter see 200 of 300 Ah instead of
 ## Changelog
 
 ### 1.1.0
+* **Found and fixed the real source of this bug class: bare literal `0`
+  (int) standing in for what's normally a `_r()`/`_f()`-rounded float.**
+  Three more instances beyond the `remaining_ah`/`temperatures_c` fix
+  above, all with the identical mechanism -- a fallback branch (low PV
+  voltage, no matching forecast hour, a `... or 0` coalesce on a
+  legitimately-zero float) writes a plain `0` where every other code path
+  writes a float, and InfluxDB's per-field type lock rejects the mismatch:
+  - `app/derive.py`: `pv{n}_current_corrected`/`pv{n}_power_corrected`
+    hit this on *every* low-light or nighttime tick (`pv < PV_MIN_V`) --
+    and because InfluxDB's "partial write" rejects the entire point (all
+    fields sharing that measurement + timestamp), not just the
+    conflicting field, this took `grid_power`/`pv_total_w_corrected`/
+    `eps_power` down with it. That's why Grafana's panel showed Battery
+    (a separate measurement, its own point) but not Grid/PV/Load.
+  - `app/forecast.py`: `ghi`/`dni`/`dhi`/`cloud`/`t_air` are raw
+    Open-Meteo passthroughs with no cast -- whole-number API responses
+    (very common: nighttime irradiance, clear-sky cloud cover) parse as
+    Python `int`, fractional ones as `float`. This is why the forecast
+    line rendered flat: most hourly points were silently dropped.
+  - Both files' own `_r()` round-to-n-decimals helpers had the same gap
+    one level down: `round()` on a plain int input returns an int, not a
+    rounded float, so `_r()` alone didn't guarantee the fix. Both now
+    `float()` before rounding.
+  Reset the `energy` bucket again to clear the stale locked-in types (this
+  time with real same-day history in it, not just test data -- did this
+  only after confirming with the user, given the larger loss). Audited
+  every other `add(..., 0)` / `or 0` / bare `round()` call across
+  `app/*.py` for the same pattern -- nothing else matched.
+* **Fixed the Grafana tile's iframe height** -- it was hardcoded to 340px
+  (a guess from before the time-range picker/refresh toolbar was added),
+  while the actual rendered content needs 470px, so the tile scrolled
+  internally. Measured the real `scrollHeight` live rather than guessing
+  again.
+* **Fixed two one-line SVG diagram overflow/overlap bugs**, both a
+  consequence of the diagram being hand-positioned SVG `<text>` with no
+  wrapping or fitting logic:
+  - The `6000XP` node box's overhead line included a `· Ns · Mn`
+    sample-window diagnostic suffix that made it wider than the 128px box
+    at anything but the smallest values. Dropped from the inline text
+    (the tile version never had it) and moved into the existing hover
+    tooltip instead.
+  - The battery ring's `"51% · discharging"` subtitle sat at `y=25`,
+    well inside the ring's own 40px radius, so a wide string crossed
+    behind the arc stroke on both sides rather than sitting below it.
+    Moved to `y=42`, just past the ring's outer edge.
 * **Made empty vs. filled-in unmistakable on the Config page's Site
   fields.** Latitude/longitude had no `::placeholder` styling at all, so
-  their example text (`32.7`, `-117.2` -- real-looking coordinates,
-  chosen to demonstrate the expected precision) rendered close enough to
-  real input that it read as an already-saved value at a glance, which is
-  exactly backwards from a hint's job. Site lat/lon actually being unset
-  is also why the forecast tile sits at "awaiting forecast" indefinitely
-  -- nothing was wrong with forecast fetching, the coordinates it needs
-  were simply never saved. Placeholders are now explicitly dimmed and
-  italic (matches the timezone field's real saved value staying bold
-  white right next to them), and reworded to `e.g. 32.7` /
-  `e.g. -117.2`, matching the "e.g. inverter_1" convention this same page
+  their example text (`32.7`, `-117.2` -- real-looking coordinates)
+  rendered close enough to real input that it read as an already-saved
+  value at a glance, which is exactly backwards from a hint's job. Also
+  bumped both to two decimal places (`32.71`, `-117.16`), matching what
+  the field's own subtitle already claims ("two decimal places is
+  enough") -- it was quietly showing one. Site lat/lon actually being
+  unset is also why the forecast tile sits at "awaiting forecast"
+  indefinitely -- nothing was wrong with forecast fetching, the
+  coordinates it needs were simply never saved. Placeholders are now
+  explicitly dimmed and italic (matches the timezone field's real saved
+  value staying bold
+  white right next to them), and reworded to `e.g. 32.71` /
+  `e.g. -117.16`, matching the "e.g. inverter_1" convention this same page
   already uses for its device-name field.
 * **The dashboard's Grafana panel now has an adjustable time range**,
   instead of being fixed at 24h. Switched the embed from a solo panel
