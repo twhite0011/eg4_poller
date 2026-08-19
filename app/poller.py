@@ -17,7 +17,8 @@ import asyncio
 import glob
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import logging
 import os
 import signal
@@ -188,13 +189,18 @@ def encode(reg: Reg, value) -> int:
 
 
 class InverterDevice:
-    def __init__(self, cfg: dict, regmap: dict):
+    def __init__(self, cfg: dict, regmap: dict, tz: str = "UTC"):
         self.name: str = cfg["name"]
         self.port: str = cfg["port"]
         self.baud: int = cfg.get("baud", 19200)
         self.unit: int = cfg.get("unit_id", 1)
         self.timeout: float = cfg.get("timeout", 1.5)
         self.read_holding: bool = cfg.get("read_holding", True)
+        # The site's tz, not the inverter's own -- its clock registers carry
+        # no zone info, and whoever set it on the LCD set it to local time.
+        # See poll()'s clock-drift comparison for why this has to be
+        # timezone-aware at all.
+        self.tz: str = tz
 
         self.input_regs = [Reg(**r) for r in regmap.get("input", [])]
         self.holding_regs = [Reg(**r) for r in regmap.get("holding", [])]
@@ -353,10 +359,18 @@ class InverterDevice:
             day, hr = hd & 0xFF, (hd >> 8) & 0xFF
             mi, se = sm & 0xFF, (sm >> 8) & 0xFF
             try:
-                dt = datetime(yr, mo, day, hr, mi, se)
+                # The registers carry no zone -- the LCD was set to the
+                # site's local time, not UTC. datetime.now() with no
+                # argument returns the CONTAINER's clock, which is UTC in
+                # this image (no TZ set) -- naively subtracting the two
+                # compared local-time-as-if-UTC against true UTC, which is
+                # just the site's UTC offset showing up as "drift" (a
+                # Pacific site read exactly -420 minutes, every time,
+                # regardless of the inverter's actual clock).
+                dt = datetime(yr, mo, day, hr, mi, se, tzinfo=ZoneInfo(self.tz))
                 values["inverter_time"] = dt.strftime("%Y-%m-%d %H:%M:%S")
                 values["inverter_clock_drift_s"] = round(
-                    (dt - datetime.now()).total_seconds(), 1)
+                    (dt - datetime.now(timezone.utc)).total_seconds(), 1)
             except ValueError:
                 # An inverter whose clock was never set reports month 0 or
                 # day 0. Leave both null rather than inventing a date.
@@ -383,7 +397,11 @@ class InverterDevice:
         old date) is worse than a drifted one, and nothing sensible wants to
         set the minute without the hour.
         """
-        now = datetime.now()
+        # Site-local time, not the container's (UTC, no TZ set in this
+        # image) -- these registers carry no zone, and AC charge windows
+        # are scheduled against whatever they read as local. See poll()'s
+        # drift comparison for the read-side half of this same bug.
+        now = datetime.now(ZoneInfo(self.tz))
         words = {
             12: ((now.month & 0xFF) << 8) | (now.year % 100),
             13: ((now.hour & 0xFF) << 8) | (now.day & 0xFF),
@@ -550,7 +568,7 @@ class Runner:
             if dtype == "modbus":
                 with open(dev_cfg["register_map"]) as f:
                     regmap = yaml.safe_load(f)
-                self.devices.append(InverterDevice(dev_cfg, regmap))
+                self.devices.append(InverterDevice(dev_cfg, regmap, tz=site_cfg.get("tz") or "UTC"))
             elif dtype == "jbd":
                 self.devices.append(JbdDevice(dev_cfg))
             elif dtype == "eg4ll":
