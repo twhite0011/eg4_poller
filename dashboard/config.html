@@ -90,6 +90,16 @@ input::placeholder{color:var(--dim);font-style:italic}
 .topics .payload{color:var(--muted);word-break:break-all}
 .topics .age{color:var(--dim);white-space:nowrap}
 
+.auto{border:1px solid var(--rule);border-radius:3px;padding:12px;margin-bottom:10px;
+  background:var(--panel-2)}
+.auto.disabled{opacity:.5}
+.auto-hd{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.auto-hd .name{font-family:var(--cond);font-size:14px;letter-spacing:.06em;
+  text-transform:uppercase;flex:1}
+.rule{display:grid;grid-template-columns:90px 90px 110px 1fr auto;gap:8px;
+  align-items:end;margin-bottom:8px}
+.rule label{margin-bottom:2px}
+
 .foot{display:flex;gap:10px;align-items:center;margin-top:14px;padding-top:12px;
   border-top:1px solid var(--rule)}
 .foot .n{font-family:var(--mono);font-size:11px;color:var(--pv);flex:1}
@@ -122,6 +132,16 @@ input::placeholder{color:var(--dim);font-style:italic}
     <div class="field"><label>Longitude</label><input id="siteLon" type="number" step="0.0001" placeholder="e.g. -117.16"></div>
     <div class="field"><label>Timezone</label><input id="siteTz" type="text" placeholder="e.g. America/Los_Angeles"></div>
   </div>
+  <div class="field" style="margin-top:10px">
+    <label>Holidays</label>
+    <input id="siteHolidays" type="text" placeholder="e.g. 2026-12-25, 2027-01-01">
+  </div>
+  <div class="sub" style="margin:4px 0 0">
+    Comma-separated YYYY-MM-DD dates. Only used by automations below with a
+    "holiday" condition -- nothing else reads this. No external holiday
+    lookup: this is a fact only you know, entered once, same as the
+    coordinates above.
+  </div>
 </div>
 
 <div class="card">
@@ -133,6 +153,21 @@ input::placeholder{color:var(--dim);font-style:italic}
     <div class="field"><label>Load</label><input id="scaleLoad" type="number" step="1" placeholder="6000"></div>
     <div class="field"><label>Battery</label><input id="scaleBatt" type="number" step="1" placeholder="6000"></div>
   </div>
+</div>
+
+<div class="card">
+  <h2>Automations</h2>
+  <div class="sub">
+    Rule table: each row below sets a value when its conditions match,
+    checked once a minute. The FIRST matching rule (top to bottom) wins --
+    put more specific rules (holiday) above general ones (any), so a
+    holiday that falls on a weekday still gets the holiday behavior. Runs
+    server-side even with no browser open; writes go through the same
+    validated register path (min/max, read-back) manual changes on the
+    Settings page use.
+  </div>
+  <div id="automations"></div>
+  <button id="addAuto">+ Add automation</button>
 </div>
 
 <div class="card">
@@ -185,7 +220,35 @@ const TYPE_DEFAULTS = {
   eg4ll:  {unit_id:2, baud:9600, timeout:2.0, role:"battery"},
 };
 
-let config = {site:{lat:null,lon:null,tz:"UTC"}, devices:[]};
+/* Writable inverter registers -- must match app/eg4_6000xp_registers.yaml's
+   `writable: true` entries, and mirrors solar_settings.html's own GROUPS
+   list so both pages use the same names. [key, label, kind] where kind is
+   "time" (HH:MM) or "number" -- everything writable on this inverter is
+   one or the other. */
+const WRITABLE_KEYS = [
+  ["set_charge_current_limit","Total charge limit (A)","number"],
+  ["set_ac_charge_current","AC charge current (A)","number"],
+  ["set_eod_pct","End of discharge (%)","number"],
+  ["set_ac_charge_start_soc","AC charge start SOC (%)","number"],
+  ["set_ac_charge_stop_soc","AC charge stop SOC (%)","number"],
+  ["set_ac_charge_start_1","AC charge window 1 start","time"],
+  ["set_ac_charge_end_1","AC charge window 1 end","time"],
+  ["set_ac_charge_start_2","AC charge window 2 start","time"],
+  ["set_ac_charge_end_2","AC charge window 2 end","time"],
+  ["set_ac_charge_start_3","AC charge window 3 start","time"],
+  ["set_ac_charge_end_3","AC charge window 3 end","time"],
+  ["set_ac_first_start_1","AC first window 1 start","time"],
+  ["set_ac_first_end_1","AC first window 1 end","time"],
+  ["set_ac_first_start_2","AC first window 2 start","time"],
+  ["set_ac_first_end_2","AC first window 2 end","time"],
+  ["set_ac_first_start_3","AC first window 3 start","time"],
+  ["set_ac_first_end_3","AC first window 3 end","time"],
+  ["set_gen_start_soc","Generator start SOC (%)","number"],
+  ["set_gen_stop_soc","Generator stop SOC (%)","number"],
+];
+const keyKind = k => (WRITABLE_KEYS.find(([kk]) => kk===k) || [,,"number"])[2];
+
+let config = {site:{lat:null,lon:null,tz:"UTC",holidays:[]}, devices:[], automations:[]};
 let discovered = [];
 
 function log(msg, cls=""){
@@ -219,9 +282,11 @@ async function loadDiscovered(){
 
 async function loadConfig(){
   config = await api("GET", "/api/config");
-  if (!config.site) config.site = {lat:null, lon:null, tz:"UTC"};
+  if (!config.site) config.site = {lat:null, lon:null, tz:"UTC", holidays:[]};
+  if (!Array.isArray(config.site.holidays)) config.site.holidays = [];
   if (!Array.isArray(config.devices)) config.devices = [];
   if (!config.scale) config.scale = {pv:4000, grid:8000, load:6000, batt:6000};
+  if (!Array.isArray(config.automations)) config.automations = [];
   render();
 }
 
@@ -273,19 +338,70 @@ function devCard(dev, i){
   </div>`;
 }
 
+function ruleRow(rule, ai, ri, kind){
+  const valInput = kind === "time"
+    ? `<input type="time" data-rf="value" value="${rule.value||""}">`
+    : `<input type="number" step="any" data-rf="value" value="${rule.value??""}">`;
+  return `<div class="rule" data-ai="${ai}" data-ri="${ri}">
+    <div><label>From</label><input type="time" data-rf="time_start" value="${rule.time_start||"00:00"}"></div>
+    <div><label>To</label><input type="time" data-rf="time_end" value="${rule.time_end||"23:59"}"></div>
+    <div><label>Days</label>
+      <select data-rf="days">
+        ${["any","weekday","weekend","holiday"].map(d=>
+          `<option value="${d}" ${d===(rule.days||"any")?"selected":""}>${d}</option>`).join("")}
+      </select></div>
+    <div><label>Set to</label>${valInput}</div>
+    <button class="small danger" data-ract="remove">&times;</button>
+  </div>`;
+}
+
+function autoCard(auto, ai){
+  const kind = keyKind(auto.key);
+  const rules = (auto.rules||[]).map((r,ri) => ruleRow(r, ai, ri, kind)).join("")
+    || '<div style="font-family:var(--mono);font-size:11px;color:var(--dim);margin-bottom:8px">no rules yet -- nothing will be written</div>';
+  return `<div class="auto ${auto.enabled===false?"disabled":""}" data-ai="${ai}">
+    <div class="auto-hd">
+      <input type="text" class="name" data-af="name" value="${auto.name||""}"
+        placeholder="e.g. AC charge window 1 end" style="max-width:260px">
+      <div class="chk"><input type="checkbox" data-af="enabled" ${auto.enabled!==false?"checked":""}> enabled</div>
+      <button class="small danger" data-aact="remove">Remove</button>
+    </div>
+    <div class="grid" style="margin-bottom:10px">
+      <div class="field"><label>Device</label>
+        <select data-af="device">
+          <option value="">-- pick a device --</option>
+          ${config.devices.map(d=>
+            `<option value="${d.name}" ${d.name===auto.device?"selected":""}>${d.name}</option>`).join("")}
+        </select></div>
+      <div class="field"><label>Setting</label>
+        <select data-af="key">
+          ${WRITABLE_KEYS.map(([k,label])=>
+            `<option value="${k}" ${k===auto.key?"selected":""}>${label}</option>`).join("")}
+        </select></div>
+    </div>
+    <div id="rules-${ai}">${rules}</div>
+    <button class="small" data-aact="addRule">+ Add rule</button>
+  </div>`;
+}
+
 function render(){
   $("devices").innerHTML = config.devices.map(devCard).join("")
     || '<div style="font-family:var(--mono);font-size:11px;color:var(--dim)">no devices configured yet</div>';
   $("siteLat").value = config.site.lat ?? "";
   $("siteLon").value = config.site.lon ?? "";
   $("siteTz").value = config.site.tz || "";
+  $("siteHolidays").value = (config.site.holidays||[]).join(", ");
 
   $("scalePv").value = config.scale.pv ?? "";
   $("scaleGrid").value = config.scale.grid ?? "";
   $("scaleLoad").value = config.scale.load ?? "";
   $("scaleBatt").value = config.scale.batt ?? "";
 
+  $("automations").innerHTML = config.automations.map(autoCard).join("")
+    || '<div style="font-family:var(--mono);font-size:11px;color:var(--dim)">no automations configured</div>';
+
   wireDeviceInputs();
+  wireAutomationInputs();
 }
 
 function wireDeviceInputs(){
@@ -316,11 +432,58 @@ function wireDeviceInputs(){
   });
 }
 
+function wireAutomationInputs(){
+  document.querySelectorAll(".auto").forEach(el => {
+    const ai = +el.dataset.ai;
+    const auto = config.automations[ai];
+    el.querySelectorAll("[data-af]").forEach(inp => {
+      inp.addEventListener("change", () => {
+        const f = inp.dataset.af;
+        if (inp.type === "checkbox") { auto[f] = inp.checked; return; }
+        auto[f] = inp.value;
+        // Value inputs are typed (time picker vs number) based on which
+        // key is selected -- re-render so an existing rule's value input
+        // switches to match whatever key was just picked.
+        if (f === "key") render();
+      });
+    });
+    el.querySelectorAll(".rule").forEach(rEl => {
+      const ri = +rEl.dataset.ri;
+      const rule = auto.rules[ri];
+      rEl.querySelectorAll("[data-rf]").forEach(inp => {
+        inp.addEventListener("change", () => { rule[inp.dataset.rf] = inp.value; });
+      });
+      rEl.querySelector('[data-ract="remove"]').addEventListener("click", () => {
+        auto.rules.splice(ri, 1);
+        render();
+      });
+    });
+    el.querySelector('[data-aact="remove"]').addEventListener("click", () => {
+      config.automations.splice(ai, 1);
+      render();
+    });
+    el.querySelector('[data-aact="addRule"]').addEventListener("click", () => {
+      auto.rules = auto.rules || [];
+      auto.rules.push({time_start:"00:00", time_end:"23:59", days:"any", value:""});
+      render();
+    });
+  });
+}
+
 $("addDev").addEventListener("click", () => {
   config.devices.push(Object.assign(
     {name: `device_${config.devices.length+1}`, type: "modbus", port: "",
      enabled: true, model: "", poll_interval: 10, tags: {}},
     TYPE_DEFAULTS.modbus));
+  render();
+});
+
+$("addAuto").addEventListener("click", () => {
+  config.automations.push({
+    name: `automation_${config.automations.length+1}`, enabled: true,
+    device: config.devices[0]?.name || "", key: WRITABLE_KEYS[0][0],
+    rules: [{time_start:"00:00", time_end:"23:59", days:"any", value:""}],
+  });
   render();
 });
 
@@ -334,6 +497,8 @@ $("saveBtn").addEventListener("click", async () => {
   config.site.lat = $("siteLat").value === "" ? null : parseFloat($("siteLat").value);
   config.site.lon = $("siteLon").value === "" ? null : parseFloat($("siteLon").value);
   config.site.tz = $("siteTz").value || "UTC";
+  config.site.holidays = $("siteHolidays").value.split(",")
+    .map(s => s.trim()).filter(Boolean);
   config.scale = {
     pv: parseFloat($("scalePv").value) || 4000,
     grid: parseFloat($("scaleGrid").value) || 8000,

@@ -36,13 +36,20 @@ TYPE_FIELDS = {
 }
 
 TEMPLATE = {
-    "site": {"lat": None, "lon": None, "tz": "UTC"},
+    # holidays: ISO dates ("2026-12-25"), for automations' "holiday" day
+    # condition -- see app/automation.py. A fact only the site owner knows,
+    # entered once, same reasoning as lat/lon: no external holiday API
+    # call, which would have to guess a region/observance anyway.
+    "site": {"lat": None, "lon": None, "tz": "UTC", "holidays": []},
     "devices": [],
     # Full-scale watts per flow, for sizing the dashboard's one-line diagram
     # (arc fill, flow-line animation speed). Display tuning only -- nothing
     # backend-side reads this; it exists here purely so it's editable on the
     # Config page instead of a separate hand-maintained file.
     "scale": {"pv": 4000, "grid": 8000, "load": 6000, "batt": 6000},
+    # Rule-table automations for writable inverter settings -- see
+    # app/automation.py for the schema and evaluation semantics.
+    "automations": [],
 }
 
 
@@ -87,6 +94,13 @@ def load(path: str, template_path: str = DEFAULT_TEMPLATE_PATH) -> dict:
     # deep in the web API.
     for k in TEMPLATE:
         data.setdefault(k, copy.deepcopy(TEMPLATE[k]))
+    # site is a nested dict, so the top-level setdefault above only helps a
+    # config missing the whole `site:` block -- one that already has it
+    # (every config from before "holidays" existed) needs its own key
+    # defaulted too, or automations would KeyError on a perfectly normal
+    # upgrade rather than just seeing an empty holiday list.
+    if isinstance(data.get("site"), dict):
+        data["site"].setdefault("holidays", [])
     return data
 
 

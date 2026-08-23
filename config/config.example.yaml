@@ -16,6 +16,7 @@ site:
   lat: null   # set on the Config page; the forecast is disabled until both are set
   lon: null
   tz: UTC
+  holidays: []   # ISO dates, e.g. ["2026-12-25"] -- see automations below
 
 # Full-scale watts per flow, for sizing the dashboard's one-line diagram
 # (arc fill, flow-line animation speed). Set these to roughly your
@@ -23,6 +24,8 @@ site:
 scale: {pv: 4000, grid: 8000, load: 6000, batt: 6000}
 
 devices: []
+
+automations: []
 
 # --- Schema reference --------------------------------------------------
 # One entry per physical device. `name` is the MQTT topic segment
@@ -69,3 +72,24 @@ devices: []
 #   unit_id: 2                 # DIP switch address
 #   timeout: 2.0
 #   poll_interval: 4
+#
+# --- Automations (see app/automation.py) -------------------------------
+# Rule-table automations for writable inverter settings -- same shape as
+# Solar Assistant's "Rule table" automation type. Checked once a minute;
+# the FIRST rule (top to bottom) whose time range and day condition both
+# match wins. Put specific rules (holiday) above general ones (any), so a
+# holiday that falls on a weekday still gets the holiday behavior. Runs
+# server-side even with no browser open, and writes through the same
+# validated register path (writable: true, min/max, read-back) manual
+# changes on the Settings page use -- NOT gated by the settings page's
+# arm-lock, since that exists to stop an accidental click, not a
+# deliberately configured rule.
+#
+# - name: AC charge window 1 end
+#   enabled: true
+#   device: inverter_1
+#   key: set_ac_charge_end_1   # must be a `writable: true` key in the register map
+#   rules:
+#     - {days: holiday, value: "10:00"}       # most specific first
+#     - {days: weekend, value: "10:00"}
+#     - {days: any,     value: "04:30"}       # catch-all -- leave no gap

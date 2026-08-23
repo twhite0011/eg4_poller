@@ -36,6 +36,7 @@ from pymodbus.exceptions import ModbusException
 import aiomqtt
 
 import armlock
+import automation
 import derive
 import devconfig
 import forecast
@@ -511,11 +512,15 @@ class InverterDevice:
 
 class Runner:
     def __init__(self, devices_cfg: list[dict], mqtt_cfg: dict, site_cfg: dict, influx_cfg: dict,
-                 armlock_: armlock.ArmLock | None = None):
+                 armlock_: armlock.ArmLock | None = None, automations_cfg: list[dict] | None = None):
         self.mqtt_cfg = mqtt_cfg
         self.base_topic: str = mqtt_cfg.get("base_topic", "energy")
         self.site_cfg = site_cfg
         self.influx_cfg = influx_cfg
+        # See app/automation.py -- a sibling of site_cfg in the config file,
+        # not nested under it, so it needs its own parameter rather than
+        # living on self.site_cfg like tz/holidays do.
+        self.automations_cfg = automations_cfg or []
         # Shared with webapp.py's /api/arm -- same object, so a session that
         # armed through the HTTP API is exactly what gets checked here
         # before any real (non-dry-run) write is executed. See app/armlock.py.
@@ -610,6 +615,7 @@ class Runner:
                         coros = [self._loop(mqtt, interval, devs) for interval, devs in groups.items()]
                         coros.append(self._commands(mqtt))
                         coros.append(self._forecast_loop(mqtt))
+                        coros.append(self._automation_loop(mqtt))
                         tasks = [asyncio.ensure_future(c) for c in coros]
                         # _commands blocks on `async for msg in mqtt.messages`,
                         # which nothing about self._stop being set can ever
@@ -889,6 +895,59 @@ class Runner:
             except asyncio.TimeoutError:
                 pass
 
+    async def _automation_loop(self, mqtt):
+        """Rule-table automations for writable inverter settings -- see
+        app/automation.py for the schema and evaluation semantics.
+
+        Checked once at startup (so a setting left wrong by a restart gets
+        corrected quickly, not up to a minute late) and every CHECK_S
+        after. Writes go through InverterDevice.write_holding() directly,
+        in-process -- the same validated path (writable: true, min/max,
+        read-back verification) manual commands use, deliberately bypassing
+        the arm-lock (see the module docstring for why).
+        """
+        CHECK_S = 60
+        last_applied: dict[str, object] = {}   # automation name -> value last written
+
+        while not self._stop.is_set():
+            autos = self.automations_cfg
+            if autos:
+                tz = self.site_cfg.get("tz") or "UTC"
+                now = datetime.now(ZoneInfo(tz))
+                holidays = automation.parse_holidays(self.site_cfg.get("holidays"))
+
+                for auto in autos:
+                    if not auto.get("enabled", True):
+                        continue
+                    name = auto.get("name") or auto.get("key") or "automation"
+                    value = automation.evaluate(auto.get("rules") or [], now, holidays)
+                    if value is None or last_applied.get(name) == value:
+                        continue   # no matching rule, or already applied -- nothing to do
+
+                    dev = next((d for d in self.devices if d.name == auto.get("device")), None)
+                    if dev is None or not hasattr(dev, "write_holding"):
+                        LOG.warning("automation %r: device %r not found or not writable",
+                                    name, auto.get("device"))
+                        continue
+
+                    result = await dev.write_holding(auto.get("key"), value)
+                    if result.get("ok"):
+                        last_applied[name] = value
+                        LOG.warning("automation %r: %s -> %s (%s)",
+                                    name, auto.get("key"), value, dev.name)
+                    else:
+                        LOG.warning("automation %r: write failed: %s", name, result.get("error"))
+
+                    payload = dict(result, automation=name, ts=round(time.time(), 3))
+                    await mqtt.publish(f"{self.base_topic}/{dev.name}/set/result",
+                                        json.dumps(payload, separators=(",", ":")))
+
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=CHECK_S)
+                break
+            except asyncio.TimeoutError:
+                pass
+
 
 def _sha(path: str) -> str:
     """Short digest of a mounted file, logged at startup.
@@ -1013,7 +1072,8 @@ async def main():
     runner = None
     startup_error = None
     try:
-        runner = Runner(cfg["devices"], mqtt_cfg, cfg["site"], influx_cfg, lock)
+        runner = Runner(cfg["devices"], mqtt_cfg, cfg["site"], influx_cfg, lock,
+                         automations_cfg=cfg.get("automations"))
     except SystemExit as e:
         startup_error = str(e)
         LOG.error("config invalid -- polling disabled until fixed via the Config page: %s", startup_error)

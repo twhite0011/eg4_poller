@@ -11,6 +11,7 @@ page that would let them fix it.
 import asyncio
 import logging
 import os
+from datetime import date, time
 
 from aiohttp import web
 
@@ -53,6 +54,11 @@ def _validate(data: dict) -> str | None:
                 float(site[k])
             except (TypeError, ValueError):
                 return f"site.{k} must be a number"
+    for d in site.get("holidays") or []:
+        try:
+            date.fromisoformat(d)
+        except (TypeError, ValueError):
+            return f"site.holidays: {d!r} is not a YYYY-MM-DD date"
     scale = data.get("scale") or {}
     for k in ("pv", "grid", "load", "batt"):
         if k in scale:
@@ -61,6 +67,31 @@ def _validate(data: dict) -> str | None:
                     raise ValueError
             except (TypeError, ValueError):
                 return f"scale.{k} must be a positive number"
+
+    device_names = names   # every device name already validated above
+    for a in data.get("automations") or []:
+        aname = a.get("name") or "(unnamed automation)"
+        if not a.get("device") or not a.get("key"):
+            return f"automation {aname!r}: needs a device and a key"
+        if a["device"] not in device_names:
+            return f"automation {aname!r}: device {a['device']!r} is not a configured device"
+        rules = a.get("rules")
+        if not isinstance(rules, list) or not rules:
+            return f"automation {aname!r}: needs at least one rule"
+        for i, r in enumerate(rules):
+            for tk in ("time_start", "time_end"):
+                if tk not in r:
+                    continue
+                try:
+                    hh, mm = str(r[tk]).split(":")
+                    time(int(hh), int(mm))
+                except (TypeError, ValueError):
+                    return f"automation {aname!r} rule {i+1}: {tk} must be HH:MM"
+            if r.get("days") not in ("any", "weekday", "weekend", "holiday"):
+                return (f"automation {aname!r} rule {i+1}: days must be one of "
+                        "any/weekday/weekend/holiday")
+            if r.get("value") in (None, ""):
+                return f"automation {aname!r} rule {i+1}: needs a value"
     return None
 
 
