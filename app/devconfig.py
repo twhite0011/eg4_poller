@@ -36,8 +36,8 @@ TYPE_FIELDS = {
 }
 
 TEMPLATE = {
-    # holidays: ISO dates ("2026-12-25"), for automations' "holiday" day
-    # condition -- see app/automation.py. A fact only the site owner knows,
+    # holidays: ISO dates ("2026-12-25"), for automations' "weekend_or_holiday"
+    # day condition -- see app/automation.py. A fact only the site owner knows,
     # entered once, same reasoning as lat/lon: no external holiday API
     # call, which would have to guess a region/observance anyway.
     "site": {"lat": None, "lon": None, "tz": "UTC", "holidays": []},

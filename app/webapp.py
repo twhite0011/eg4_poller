@@ -87,9 +87,9 @@ def _validate(data: dict) -> str | None:
                     time(int(hh), int(mm))
                 except (TypeError, ValueError):
                     return f"automation {aname!r} rule {i+1}: {tk} must be HH:MM"
-            if r.get("days") not in ("any", "weekday", "weekend", "holiday"):
+            if r.get("days") not in ("any", "weekday", "weekend_or_holiday"):
                 return (f"automation {aname!r} rule {i+1}: days must be one of "
-                        "any/weekday/weekend/holiday")
+                        "any/weekday/weekend_or_holiday")
             if r.get("value") in (None, ""):
                 return f"automation {aname!r} rule {i+1}: needs a value"
     return None

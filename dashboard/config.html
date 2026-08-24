@@ -99,6 +99,8 @@ input::placeholder{color:var(--dim);font-style:italic}
 .rule{display:grid;grid-template-columns:90px 90px 110px 1fr auto;gap:8px;
   align-items:end;margin-bottom:8px}
 .rule label{margin-bottom:2px}
+.cur{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:4px}
+.cur.live{color:var(--pv)}
 
 .foot{display:flex;gap:10px;align-items:center;margin-top:14px;padding-top:12px;
   border-top:1px solid var(--rule)}
@@ -247,9 +249,20 @@ const WRITABLE_KEYS = [
   ["set_gen_stop_soc","Generator stop SOC (%)","number"],
 ];
 const keyKind = k => (WRITABLE_KEYS.find(([kk]) => kk===k) || [,,"number"])[2];
+// pulls "A" out of "AC charge current (A)" -- purely cosmetic, for the
+// current-value readout next to the Setting dropdown.
+const keyUnit = k => {
+  const label = (WRITABLE_KEYS.find(([kk]) => kk===k) || [,""])[1] || "";
+  const m = label.match(/\(([^)]+)\)/);
+  return m ? m[1] : "";
+};
 
 let config = {site:{lat:null,lon:null,tz:"UTC",holidays:[]}, devices:[], automations:[]};
 let discovered = [];
+// device name -> latest `values` object from energy/<device>/state, kept
+// live over MQTT so the automation card can show "current: X" next to the
+// Setting dropdown without a trip to the Settings page.
+const liveValues = {};
 
 function log(msg, cls=""){
   const el = $("log");
@@ -338,16 +351,19 @@ function devCard(dev, i){
   </div>`;
 }
 
+/* lang="en-GB" forces the native time picker's 24h/military display in
+   Chromium-based browsers regardless of OS locale -- the stored value
+   attribute is always "HH:MM" either way, this only changes what's shown. */
 function ruleRow(rule, ai, ri, kind){
   const valInput = kind === "time"
-    ? `<input type="time" data-rf="value" value="${rule.value||""}">`
+    ? `<input type="time" lang="en-GB" data-rf="value" value="${rule.value||""}">`
     : `<input type="number" step="any" data-rf="value" value="${rule.value??""}">`;
   return `<div class="rule" data-ai="${ai}" data-ri="${ri}">
-    <div><label>From</label><input type="time" data-rf="time_start" value="${rule.time_start||"00:00"}"></div>
-    <div><label>To</label><input type="time" data-rf="time_end" value="${rule.time_end||"23:59"}"></div>
+    <div><label>From</label><input type="time" lang="en-GB" data-rf="time_start" value="${rule.time_start||"00:00"}"></div>
+    <div><label>To</label><input type="time" lang="en-GB" data-rf="time_end" value="${rule.time_end||"23:59"}"></div>
     <div><label>Days</label>
       <select data-rf="days">
-        ${[["any","Any day"],["weekday","Weekday"],["weekend","Weekend"],["holiday","Holiday"]].map(([d,label])=>
+        ${[["any","Any day"],["weekday","Weekday"],["weekend_or_holiday","Weekend / Holiday"]].map(([d,label])=>
           `<option value="${d}" ${d===(rule.days||"any")?"selected":""}>${label}</option>`).join("")}
       </select></div>
     <div><label>Set to</label>${valInput}</div>
@@ -377,7 +393,8 @@ function autoCard(auto, ai){
         <select data-af="key">
           ${WRITABLE_KEYS.map(([k,label])=>
             `<option value="${k}" ${k===auto.key?"selected":""}>${label}</option>`).join("")}
-        </select></div>
+        </select>
+        <div class="cur" id="cur-${ai}">current: --</div></div>
     </div>
     <div id="rules-${ai}">${rules}</div>
     <button class="small" data-aact="addRule">+ Add rule</button>
@@ -402,7 +419,30 @@ function render(){
 
   wireDeviceInputs();
   wireAutomationInputs();
+  renderCurrentValues();
 }
+
+/* Live "current: X" readout next to each automation's Setting dropdown,
+   from the same energy/<device>/state stream the topic browser already
+   subscribes to below -- no extra MQTT subscription needed. Runs on its
+   own interval (not folded into render()'s DOM rebuild) so a new MQTT
+   tick doesn't blow away in-progress edits elsewhere on the card. */
+function renderCurrentValues(){
+  config.automations.forEach((auto, ai) => {
+    const el = $(`cur-${ai}`);
+    if (!el) return;
+    const vals = liveValues[auto.device];
+    if (!auto.device || !auto.key || !vals || !(auto.key in vals)){
+      el.textContent = "current: --";
+      el.className = "cur";
+      return;
+    }
+    const unit = keyUnit(auto.key);
+    el.textContent = `current: ${vals[auto.key]}${unit ? " " + unit : ""}`;
+    el.className = "cur live";
+  });
+}
+setInterval(renderCurrentValues, 2000);
 
 function wireDeviceInputs(){
   document.querySelectorAll(".dev").forEach(el => {
@@ -445,6 +485,9 @@ function wireAutomationInputs(){
         // key is selected -- re-render so an existing rule's value input
         // switches to match whatever key was just picked.
         if (f === "key") render();
+        // device also determines which live values feed the "current: X"
+        // readout -- refresh it immediately rather than waiting up to 2s.
+        else if (f === "device") renderCurrentValues();
       });
     });
     el.querySelectorAll(".rule").forEach(rEl => {
@@ -573,6 +616,11 @@ function connectMqtt(){
   client.on("error", e => log("mqtt: " + (e.message || e), "err"));
   client.on("message", (topic, buf) => {
     topics[topic] = {payload: buf.toString(), ts: Date.now()};
+    const m = topic.match(/^energy\/([^/]+)\/state$/);
+    if (m){
+      try { liveValues[m[1]] = JSON.parse(buf.toString()).values || {}; }
+      catch (e) { /* malformed payload -- keep the last good values */ }
+    }
   });
 }
 

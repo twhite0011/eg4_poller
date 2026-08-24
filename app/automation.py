@@ -1,18 +1,22 @@
 """Rule-table automations for writable inverter settings -- same shape as
 Solar Assistant's "Rule table" automation type
 (https://solar-assistant.io/help/automation/table), scoped to what this
-project actually needs: a time-of-day range plus a weekday/weekend/holiday
-condition. Battery-SOC conditions (Solar Assistant's Example 2) are not
-supported -- add them here if a real need for one shows up.
+project actually needs: a time-of-day range plus a weekday/weekend-or-holiday
+condition. Weekend and holiday are ONE combined condition, not two --
+there's no real-world case here for "just a holiday" (e.g. a Tuesday) as
+its own distinct behavior from "the weekend", so keeping them separate
+would only add a rule nobody uses. Battery-SOC conditions (Solar
+Assistant's Example 2) are not supported -- add them here if a real need
+for one shows up.
 
 Each automation is an ORDERED list of rules; the first rule whose
 conditions match "now" wins -- read top-to-bottom, like Solar Assistant's
-own tables. Put more specific rules (holiday) above more general ones
-(any), so a holiday that happens to fall on a weekday still gets the
-holiday behavior rather than the weekday one. Solar Assistant's own docs
-recommend covering the full day with no gaps across a rule set, so there
-is never a moment where a setting is left on "whatever was last applied"
-by accident -- the same recommendation applies here.
+own tables. Put more specific rules (weekend_or_holiday) above more general
+ones (any), so a holiday that happens to fall on a weekday still gets the
+weekend-style behavior rather than the weekday one. Solar Assistant's own
+docs recommend covering the full day with no gaps across a rule set, so
+there is never a moment where a setting is left on "whatever was last
+applied" by accident -- the same recommendation applies here.
 
 Runs entirely server-side, in-process (see Runner._automation_loop in
 poller.py) -- it calls InverterDevice.write_holding() directly, the exact
@@ -38,11 +42,9 @@ def _parse_hhmm(s: str) -> dtime:
 def _day_matches(kind: str, today: date, holidays: set[date]) -> bool:
     if kind == "any":
         return True
-    if kind == "holiday":
-        return today in holidays
     is_weekend = today.weekday() >= 5   # Monday=0 .. Sunday=6
-    if kind == "weekend":
-        return is_weekend
+    if kind == "weekend_or_holiday":
+        return is_weekend or today in holidays
     if kind == "weekday":
         return not is_weekend
     return False

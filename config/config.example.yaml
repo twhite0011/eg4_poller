@@ -77,8 +77,11 @@ automations: []
 # Rule-table automations for writable inverter settings -- same shape as
 # Solar Assistant's "Rule table" automation type. Checked once a minute;
 # the FIRST rule (top to bottom) whose time range and day condition both
-# match wins. Put specific rules (holiday) above general ones (any), so a
-# holiday that falls on a weekday still gets the holiday behavior. Runs
+# match wins. days is one of any/weekday/weekend_or_holiday -- weekend and
+# holiday are one combined condition, not two, since there's no real case
+# for a holiday to behave differently from a weekend here. Put the more
+# specific rule (weekend_or_holiday) above the general one (any), so a
+# holiday that falls on a weekday still gets weekend-style behavior. Runs
 # server-side even with no browser open, and writes through the same
 # validated register path (writable: true, min/max, read-back) manual
 # changes on the Settings page use -- NOT gated by the settings page's
@@ -90,6 +93,5 @@ automations: []
 #   device: inverter_1
 #   key: set_ac_charge_end_1   # must be a `writable: true` key in the register map
 #   rules:
-#     - {days: holiday, value: "10:00"}       # most specific first
-#     - {days: weekend, value: "10:00"}
-#     - {days: any,     value: "04:30"}       # catch-all -- leave no gap
+#     - {days: weekend_or_holiday, value: "10:00"}   # most specific first
+#     - {days: any,                value: "04:30"}   # catch-all -- leave no gap
