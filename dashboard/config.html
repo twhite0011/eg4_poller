@@ -97,11 +97,22 @@ input::placeholder{color:var(--dim);font-style:italic}
 .auto-hd{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 .auto-hd .name{font-family:var(--cond);font-size:14px;letter-spacing:.06em;
   text-transform:uppercase;flex:1}
-.rule{display:grid;grid-template-columns:90px 90px 110px 1fr auto;gap:8px;
+.rule{display:grid;grid-template-columns:auto auto 1fr 90px auto;gap:8px;
   align-items:end;margin-bottom:8px}
 .rule label{margin-bottom:2px}
 .cur{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:4px}
 .cur.live{color:var(--pv)}
+/* Two 2-digit boxes with a fixed colon between them -- same pattern as
+   solar_settings.html's time fields, and for the same reason: a single
+   HH:MM text field means retyping the whole thing to change just the hour,
+   and the colon is just another character that can get deleted. */
+.tin{display:inline-flex;align-items:center;gap:0;background:var(--bg);
+  border:1px solid var(--rule-lit);border-radius:2px;padding:0 6px}
+.tin input{width:22px!important;border:none!important;background:none!important;
+  padding:6px 2px!important;text-align:center!important}
+.tin input:focus{outline:none;color:var(--pv)}
+.tin .cln{font-family:var(--mono);font-size:13.5px;color:var(--dim);
+  user-select:none;pointer-events:none}
 
 .foot{display:flex;gap:10px;align-items:center;margin-top:14px;padding-top:12px;
   border-top:1px solid var(--rule)}
@@ -352,27 +363,31 @@ function devCard(dev, i){
   </div>`;
 }
 
-// Plain text + pattern, not <input type="time"> -- the native time widget's
-// 12h/24h display follows the browser/OS locale and ignores lang="..." in
-// several browsers (Firefox always, some Chrome versions too), so it kept
-// showing AM/PM regardless. A text field has no locale-dependent rendering
-// at all: what's typed is exactly what's stored ("HH:MM", 24h, matching the
-// inverter's own clock), so there's nothing left to disagree with.
-const HHMM_PATTERN = "([01][0-9]|2[0-3]):[0-5][0-9]";
-const hhmmInput = (attr, value) =>
-  `<input type="text" inputmode="numeric" pattern="${HHMM_PATTERN}"
-     placeholder="HH:MM" data-rf="${attr}" value="${value}">`;
+// Two 2-digit boxes + a fixed colon, not <input type="time"> -- the native
+// time widget's 12h/24h display follows the browser/OS locale (Firefox
+// ignores lang="..." for it entirely, some Chrome versions too), so it kept
+// showing AM/PM regardless. This has no locale-dependent rendering at all:
+// what's typed is exactly what's stored ("HH:MM", 24h, matching the
+// inverter's own clock). Matches solar_settings.html's timeBox/timeShim.
+function timeBox(field, value){
+  const [h, m] = String(value || "").split(":");
+  return `<span class="tin" data-hhmm="${field}">
+    <input type="text" inputmode="numeric" maxlength="2" data-part="hh" value="${h||""}">
+    <span class="cln">:</span>
+    <input type="text" inputmode="numeric" maxlength="2" data-part="mm" value="${m||""}">
+  </span>`;
+}
 
 function ruleRow(rule, ai, ri, kind){
   const valInput = kind === "time"
-    ? hhmmInput("value", rule.value || "")
+    ? timeBox("value", rule.value || "")
     : `<input type="number" step="any" data-rf="value" value="${rule.value??""}">`;
   return `<div class="rule" data-ai="${ai}" data-ri="${ri}">
-    <div><label>From</label>${hhmmInput("time_start", rule.time_start || "00:00")}</div>
-    <div><label>To</label>${hhmmInput("time_end", rule.time_end || "23:59")}</div>
+    <div><label>From</label>${timeBox("time_start", rule.time_start || "00:00")}</div>
+    <div><label>To</label>${timeBox("time_end", rule.time_end || "23:59")}</div>
     <div><label>Days</label>
       <select data-rf="days">
-        ${[["any","Any day"],["weekday","Weekday"],["weekend_or_holiday","Weekend / Holiday"]].map(([d,label])=>
+        ${[["any","Every day"],["weekday","Weekday"],["weekend_or_holiday","Weekend / Holiday"]].map(([d,label])=>
           `<option value="${d}" ${d===(rule.days||"any")?"selected":""}>${label}</option>`).join("")}
       </select></div>
     <div><label>Set to</label>${valInput}</div>
@@ -504,6 +519,36 @@ function wireAutomationInputs(){
       const rule = auto.rules[ri];
       rEl.querySelectorAll("[data-rf]").forEach(inp => {
         inp.addEventListener("change", () => { rule[inp.dataset.rf] = inp.value; });
+      });
+      // hh/mm pairs (time_start, time_end, and value when the setting is a
+      // time) -- clamp to valid ranges as you type, jump hh -> mm once two
+      // digits are in (matches solar_settings.html's timeShim), pad single
+      // digits into "0N" on blur so the stored value is always HH:MM.
+      rEl.querySelectorAll(".tin[data-hhmm]").forEach(box => {
+        const field = box.dataset.hhmm;
+        const hh = box.querySelector('[data-part="hh"]');
+        const mm = box.querySelector('[data-part="mm"]');
+        const clamp2 = (inp, hi) => {
+          let v = inp.value.replace(/\D/g, "").slice(0, 2);
+          if (v !== "" && +v > hi) v = String(hi);
+          inp.value = v;
+        };
+        const sync = () => {
+          const pad = v => (v === "" ? "00" : v.padStart(2, "0"));
+          rule[field] = `${pad(hh.value)}:${pad(mm.value)}`;
+        };
+        hh.addEventListener("input", () => {
+          clamp2(hh, 23);
+          if (hh.value.length === 2) mm.focus();
+          sync();
+        });
+        mm.addEventListener("input", () => { clamp2(mm, 59); sync(); });
+        for (const inp of [hh, mm]){
+          inp.addEventListener("blur", () => {
+            if (inp.value.length === 1) inp.value = "0" + inp.value;
+            sync();
+          });
+        }
       });
       rEl.querySelector('[data-ract="remove"]').addEventListener("click", () => {
         auto.rules.splice(ri, 1);
