@@ -507,7 +507,14 @@ function drawForecast(){
   // zone, which throws and takes render() down with it.
   const W=720,CH=260,L=42,R=34,T=12,B=26;
   const iw=W-L-R, ih=CH-T-B;
-  const maxW = Math.max(CFG.scale.pv*0.4, ...day.map(p=>p.w), H.pvPeak) * 1.12;
+  // Fixed to the configured system ceiling, not Math.max()'d against the
+  // actual/forecast data -- a single bad Modbus sample (a torn/corrupted
+  // register read, e.g. pv1_power briefly reporting 4760W on an 800W array
+  // for one 5s tick before immediately reading normal again) would otherwise
+  // balloon the whole axis to fit one glitch. scale.pv is the real ceiling,
+  // set on the Config page; 1.12 leaves headroom for the correction curve's
+  // slight overshoot near full output, not for outliers.
+  const maxW = CFG.scale.pv * 1.12;
   // Fall back to a fixed daylight window when there is no forecast to span.
   const ahAll = Object.keys(H.pvHours).map(Number);
   const h0 = day.length ? +day[0].t.slice(11,13)
