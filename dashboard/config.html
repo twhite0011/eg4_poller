@@ -68,6 +68,7 @@ input,select{width:100%;font-family:var(--mono);font-size:13px;
   background:var(--bg);color:var(--text);border:1px solid var(--rule-lit);
   border-radius:2px;padding:6px 9px}
 input:focus,select:focus{outline:none;border-color:var(--pv)}
+input[pattern]:not(:placeholder-shown):invalid{border-color:var(--warn)}
 /* Explicitly dimmed and italic -- an example value sitting in an empty
    field (see the "e.g." wording on placeholders below) has to read as
    obviously not-yet-entered at a glance, not like a saved real one. */
@@ -351,16 +352,24 @@ function devCard(dev, i){
   </div>`;
 }
 
-/* lang="en-GB" forces the native time picker's 24h/military display in
-   Chromium-based browsers regardless of OS locale -- the stored value
-   attribute is always "HH:MM" either way, this only changes what's shown. */
+// Plain text + pattern, not <input type="time"> -- the native time widget's
+// 12h/24h display follows the browser/OS locale and ignores lang="..." in
+// several browsers (Firefox always, some Chrome versions too), so it kept
+// showing AM/PM regardless. A text field has no locale-dependent rendering
+// at all: what's typed is exactly what's stored ("HH:MM", 24h, matching the
+// inverter's own clock), so there's nothing left to disagree with.
+const HHMM_PATTERN = "([01][0-9]|2[0-3]):[0-5][0-9]";
+const hhmmInput = (attr, value) =>
+  `<input type="text" inputmode="numeric" pattern="${HHMM_PATTERN}"
+     placeholder="HH:MM" data-rf="${attr}" value="${value}">`;
+
 function ruleRow(rule, ai, ri, kind){
   const valInput = kind === "time"
-    ? `<input type="time" lang="en-GB" data-rf="value" value="${rule.value||""}">`
+    ? hhmmInput("value", rule.value || "")
     : `<input type="number" step="any" data-rf="value" value="${rule.value??""}">`;
   return `<div class="rule" data-ai="${ai}" data-ri="${ri}">
-    <div><label>From</label><input type="time" lang="en-GB" data-rf="time_start" value="${rule.time_start||"00:00"}"></div>
-    <div><label>To</label><input type="time" lang="en-GB" data-rf="time_end" value="${rule.time_end||"23:59"}"></div>
+    <div><label>From</label>${hhmmInput("time_start", rule.time_start || "00:00")}</div>
+    <div><label>To</label>${hhmmInput("time_end", rule.time_end || "23:59")}</div>
     <div><label>Days</label>
       <select data-rf="days">
         ${[["any","Any day"],["weekday","Weekday"],["weekend_or_holiday","Weekend / Holiday"]].map(([d,label])=>
