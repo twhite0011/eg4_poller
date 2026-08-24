@@ -417,6 +417,31 @@ full. Chaining the Cubix pair makes the inverter see 200 of 300 Ah instead of
 ## Changelog
 
 ### 1.1.0
+* **Added rule-table automations for writable inverter settings** (Config
+  page, new "Automations" card), modeled on Solar Assistant's own "Rule
+  table" automation type: an ordered list of rules, each with a time-of-day
+  range and a day condition (`any`/`weekday`/`weekend`/`holiday`); the first
+  matching rule wins. Checked server-side once a minute (`app/automation.py`
+  + `Runner._automation_loop` in `app/poller.py`), starting immediately at
+  boot so a setting left wrong by a restart gets corrected quickly rather
+  than up to a minute late. Writes go through the exact same validated path
+  manual commands use (`InverterDevice.write_holding()` -- `writable: true`,
+  min/max from the register map, read-back verification), called directly
+  in-process rather than duplicated or routed back through MQTT. Deliberately
+  bypasses the Settings page's arm-lock: that lock exists to stop an
+  accidental second-tab click, not to gate a pre-configured, reviewed rule,
+  and the register-map validation is the safety net that actually matters
+  regardless of who -- or what -- is asking for the write. Added a
+  `site.holidays` list (plain ISO dates, entered once on the Config page --
+  no external holiday-API lookup, which would have to guess a region/
+  observance anyway) for the `holiday` day condition. Scoped down
+  deliberately to time-of-day + day-of-week/holiday conditions only, no
+  battery-SOC conditions yet (Solar Assistant supports both) -- add that if
+  a real need for it shows up. Verified live end-to-end against the real
+  inverter: a temporary test automation forced `set_ac_charge_end_1` to a
+  distinctive value, confirmed via MQTT that the automation loop actually
+  wrote it within one check cycle, then manually reverted the register and
+  removed the test automation.
 * **Found and fixed the real source of this bug class: bare literal `0`
   (int) standing in for what's normally a `_r()`/`_f()`-rounded float.**
   Three more instances beyond the `remaining_ah`/`temperatures_c` fix
