@@ -61,7 +61,7 @@ button.small{padding:4px 10px;font-size:11px}
 .dev-hd{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 .dev-hd .name{font-family:var(--cond);font-size:14px;letter-spacing:.06em;
   text-transform:uppercase;flex:1}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
 label{display:block;font-family:var(--mono);font-size:10px;color:var(--dim);
   margin-bottom:3px;text-transform:uppercase;letter-spacing:.06em}
 input,select{width:100%;font-family:var(--mono);font-size:13px;
@@ -347,8 +347,8 @@ function ruleRow(rule, ai, ri, kind){
     <div><label>To</label><input type="time" data-rf="time_end" value="${rule.time_end||"23:59"}"></div>
     <div><label>Days</label>
       <select data-rf="days">
-        ${["any","weekday","weekend","holiday"].map(d=>
-          `<option value="${d}" ${d===(rule.days||"any")?"selected":""}>${d}</option>`).join("")}
+        ${[["any","Any day"],["weekday","Weekday"],["weekend","Weekend"],["holiday","Holiday"]].map(([d,label])=>
+          `<option value="${d}" ${d===(rule.days||"any")?"selected":""}>${label}</option>`).join("")}
       </select></div>
     <div><label>Set to</label>${valInput}</div>
     <button class="small danger" data-ract="remove">&times;</button>
@@ -367,10 +367,10 @@ function autoCard(auto, ai){
       <button class="small danger" data-aact="remove">Remove</button>
     </div>
     <div class="grid" style="margin-bottom:10px">
-      <div class="field"><label>Device</label>
+      <div class="field"><label>Inverter</label>
         <select data-af="device">
-          <option value="">-- pick a device --</option>
-          ${config.devices.map(d=>
+          <option value="">-- pick an inverter --</option>
+          ${config.devices.filter(d=>d.type==="modbus").map(d=>
             `<option value="${d.name}" ${d.name===auto.device?"selected":""}>${d.name}</option>`).join("")}
         </select></div>
       <div class="field"><label>Setting</label>
@@ -481,7 +481,7 @@ $("addDev").addEventListener("click", () => {
 $("addAuto").addEventListener("click", () => {
   config.automations.push({
     name: `automation_${config.automations.length+1}`, enabled: true,
-    device: config.devices[0]?.name || "", key: WRITABLE_KEYS[0][0],
+    device: config.devices.find(d=>d.type==="modbus")?.name || "", key: WRITABLE_KEYS[0][0],
     rules: [{time_start:"00:00", time_end:"23:59", days:"any", value:""}],
   });
   render();
