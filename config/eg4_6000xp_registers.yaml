@@ -133,21 +133,26 @@ holding:
   # exists to catch.
   - {addr: 101, key: set_charge_current_limit, type: u16, scale: 1, unit: A, min: 0, max: 125, writable: true, setting: 6}
 
-  # --- Charge/discharge voltage targets (LCD settings 7, 8, 11) ---
+  # --- Charge voltage targets (LCD settings 7, 8) ---
   # Found by differential scan, same technique as set_charge_current_limit
   # above: dump every holding register, change the value on the LCD, dump
-  # again, diff. All three confirmed against the panel: 56.4->55.6 V read
-  # back as raw 564->556 (x0.1) at 99, 54.0->53.6 V as 540->536 at 144,
-  # 46.0->47.0 V as 460->470 at 100.
+  # again, diff. Confirmed against the panel: 56.4->55.6 V read back as raw
+  # 564->556 (x0.1) at 99, 54.0->53.6 V as 540->536 at 144.
   #
   # Bounds are a 16S LiFePO4 sanity range, not the inverter's own limits --
-  # 58.4 V is 16 * 3.65 V/cell (common absolute ceiling); the discharge
-  # cutoff floor is kept comfortably above the truly-damaging deep-discharge
-  # zone. Loosen these once real-world tuning settles, not before.
+  # 58.4 V is 16 * 3.65 V/cell (common absolute ceiling). Loosen these once
+  # real-world tuning settles, not before.
   - {addr: 99,  key: set_charge_voltage,           type: u16, scale: 0.1, unit: V, min: 48.0, max: 58.4, writable: true, setting: 7}
   - {addr: 144, key: set_float_voltage,             type: u16, scale: 0.1, unit: V, min: 48.0, max: 56.0, writable: true, setting: 8}
-  - {addr: 100, key: set_discharge_cutoff_voltage,  type: u16, scale: 0.1, unit: V, min: 44.0, max: 52.0, writable: true, setting: 11}
 
+  # --- Discharge cutoff (LCD setting 12) ---
+  # ONE LCD page with two fields, not two separate menu numbers -- confirmed
+  # on the panel. Setting 10 (discharge type, register 120 bit 4 -- a shared
+  # bitmask, not yet exposed here) picks which of these two actually gets
+  # enforced: Voltage uses set_discharge_cutoff_voltage, SOC uses
+  # set_eod_pct. Found by the same differential-scan method: 46.0->47.0 V
+  # read back as raw 460->470 (x0.1) at 100.
+  - {addr: 100, key: set_discharge_cutoff_voltage,  type: u16, scale: 0.1, unit: V, min: 44.0, max: 52.0, writable: true, setting: 12}
   # End-of-discharge floor. The lower bound is 15, not the inverter's own 10:
   # at 15% of a 200 Ah bank there is still ~1.5 kWh of reserve, and a typo
   # that sets 1 instead of 10 must not be reachable.

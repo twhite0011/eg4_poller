@@ -218,16 +218,12 @@ const GROUPS = [
        "Should stay below charge voltage — not cross-validated against it here. Found by differential scan (register 144)."],
     ]},
 
-  { num: 11, title: "Discharge cutoff voltage", sub: "Low-voltage disconnect, active when Setting 10 = Voltage",
+  { num: 12, title: "Discharge cutoff", sub: "Eod — one LCD page, two fields; Setting 10 (discharge type, not yet exposed here) picks which one is enforced",
     rows: [
       ["set_discharge_cutoff_voltage","Cutoff voltage","V",44.0,52.0,0.1,
-       "Only takes effect when Setting 10 (discharge type, not yet exposed here) is set to Voltage rather than SOC. Found by differential scan (register 100)."],
-    ]},
-
-  { num: 12, title: "Discharge cutoff", sub: "Eod — end of discharge",
-    rows: [
-      ["set_eod_pct","End of discharge","%",15,90,1,
-       "Manual allows down to the setting-11 cutoff; floored at 15 here. Sourced from the Cubix, the comms master."],
+       "Used when Setting 10 (discharge type) = Voltage. Found by differential scan (register 100)."],
+      ["set_eod_pct","Cutoff SOC","%",15,90,1,
+       "Used when Setting 10 (discharge type) = SOC. Floored at 15, not the inverter's own 10 — sourced from the Cubix, the comms master."],
     ]},
 
   { num: 14, title: "AC charge", sub: "Grid charging: SOC thresholds and up to three time windows",
