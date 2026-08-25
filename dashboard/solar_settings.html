@@ -218,10 +218,16 @@ const GROUPS = [
        "Should stay below charge voltage — not cross-validated against it here. Found by differential scan (register 144)."],
     ]},
 
+  { num: 11, title: "Battery cutoff voltage", sub: "Distinct from the Setting 12 discharge cutoff below — what it actually does differently isn't confirmed yet",
+    rows: [
+      ["set_battery_cutoff_voltage","Battery cutoff voltage","V",44.0,52.0,0.1,
+       "Found by differential scan (register 100), confirmed twice as a value distinct from Setting 12's cutoff."],
+    ]},
+
   { num: 12, title: "Discharge cutoff", sub: "Eod — one LCD page, two fields; Setting 10 (discharge type, not yet exposed here) picks which one is enforced",
     rows: [
       ["set_discharge_cutoff_voltage","Cutoff voltage","V",44.0,52.0,0.1,
-       "Used when Setting 10 (discharge type) = Voltage. Found by differential scan (register 100)."],
+       "Used when Setting 10 (discharge type) = Voltage. Found by differential scan (register 169)."],
       ["set_eod_pct","Cutoff SOC","%",15,90,1,
        "Used when Setting 10 (discharge type) = SOC. Floored at 15, not the inverter's own 10 — sourced from the Cubix, the comms master."],
     ]},
