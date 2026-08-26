@@ -229,7 +229,7 @@ def transform(state: DeriveState, envelope: dict) -> dict | None:
             if volts is not None:
                 add("cell_sum_delta_v", _r(cell_sum - volts, 3))
 
-        # The LL-S reports 0 for absent probes 3 and 4.
+        # The LL-S reports 0 for any absent probe beyond the first two.
         temps_raw = v.get("temperatures_c") or []
         temps = [t for i, t in enumerate(temps_raw) if i < 2 or t != 0]
         if temps:
