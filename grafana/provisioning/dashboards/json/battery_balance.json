@@ -1,0 +1,174 @@
+{
+  "uid": "battery-balance",
+  "title": "Battery Balance",
+  "timezone": "browser",
+  "editable": true,
+  "time": { "from": "now-90d", "to": "now" },
+  "refresh": "5m",
+  "templating": {
+    "list": [
+      {
+        "name": "device",
+        "type": "custom",
+        "label": "Pack (Panel 4 only)",
+        "query": "cubix_1,cubix_2,lls_1",
+        "current": { "text": "cubix_1", "value": "cubix_1" },
+        "options": [
+          { "text": "cubix_1", "value": "cubix_1", "selected": true },
+          { "text": "cubix_2", "value": "cubix_2", "selected": false },
+          { "text": "lls_1", "value": "lls_1", "selected": false }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Delta @ 3.450V, midday charge",
+      "description": "Cell spread (max-min) sampled only while the pack's own average cell voltage sits at 3.445-3.455V -- so day-to-day comparisons are like-for-like, not confounded by charge current or where in the curve the pack happened to be. One point per pack per day (the day's worst reading in that window). Falling over weeks = balancer winning. Flat = capacity mismatch balancing can't fix.",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"energy\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"battery\")\n  |> filter(fn: (r) => r._field == \"cell_delta_mv\" or r._field == \"cell_avg_mv\")\n  |> hourSelection(start: 10, stop: 14)\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.cell_avg_mv >= 3445.0 and r.cell_avg_mv <= 3455.0)\n  |> map(fn: (r) => ({ _time: r._time, device: r.device, _value: r.cell_delta_mv }))\n  |> group(columns: [\"device\"])\n  |> aggregateWindow(every: 1d, fn: max, createEmpty: false)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line", "lineWidth": 2, "fillOpacity": 6,
+            "pointSize": 4, "showPoints": "always", "spanNulls": false,
+            "axisLabel": "mV"
+          }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "cubix_1" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#E8B33C" } }] },
+          { "matcher": { "id": "byName", "options": "cubix_2" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3FA7A0" } }] },
+          { "matcher": { "id": "byName", "options": "lls_1" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#7C90B5" } }] }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last", "min"] }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "OVP headroom (daily min)",
+      "description": "3650mV - today's peak cell, per pack. 3650mV is a standard LiFePO4 cell overvoltage-protection assumption, NOT a value read from either BMS -- neither exposes its real configured threshold. Treat as a reasonable default, not ground truth; adjust the 3650 constant in this panel's query if you find the real number.",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 9 },
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"energy\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"battery\" and r._field == \"cell_max_mv\")\n  |> map(fn: (r) => ({ r with _value: 3650.0 - r._value }))\n  |> group(columns: [\"device\"])\n  |> aggregateWindow(every: 1d, fn: min, createEmpty: false)\n  |> last()"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": { "axisLabel": "mV" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#D2694A", "value": null },
+              { "color": "#E8B33C", "value": 50 },
+              { "color": "#4E9E6A", "value": 100 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 3,
+      "type": "barchart",
+      "title": "Balancer dwell time (min/day > 3.40V)",
+      "description": "Minutes per day each pack's average cell voltage sits above 3.40V -- the opportunity window a passive balancer actually gets to work with. This is the input to whether Panel 1 can improve at all; target is 120+ min/day from a full 10:00-14:00 absorb hold. Assumes a 5s poll interval -- update the '5.0' constant in this panel's query if that ever changes.",
+      "gridPos": { "h": 6, "w": 16, "x": 8, "y": 9 },
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"energy\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"battery\" and r._field == \"cell_avg_mv\")\n  |> filter(fn: (r) => r._value > 3400.0)\n  |> aggregateWindow(every: 1d, fn: count, createEmpty: true)\n  |> map(fn: (r) => ({ r with _value: float(v: r._value) * 5.0 / 60.0 }))\n  |> group(columns: [\"device\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "m" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "cubix_1" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#E8B33C" } }] },
+          { "matcher": { "id": "byName", "options": "cubix_2" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3FA7A0" } }] },
+          { "matcher": { "id": "byName", "options": "lls_1" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#7C90B5" } }] }
+        ]
+      },
+      "options": {
+        "orientation": "vertical",
+        "xTickLabelRotation": 0,
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Per-cell deviation from pack mean (10:00-14:00, $device)",
+      "description": "Each cell's voltage minus that poll's pack-wide mean, sampled during the 10:00-14:00 absorb window for the pack selected above. A graded spread across many lines (Cubix pattern) points to a capacity mismatch; a single line sitting apart from the rest (LL-S cell 15 pattern per the original notes) points to one weak cell. Watch whether the ranking ever changes, not just the spread.",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 15 },
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "base = from(bucket: \"energy\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"battery_cells\" and r.device == \"${device}\")\n  |> filter(fn: (r) => r._field =~ /^cell_[0-9]{2}_mv$/)\n  |> aggregateWindow(every: 5m, fn: mean, createEmpty: false)\n  |> hourSelection(start: 10, stop: 14)\n\ncavg = base |> group(columns: [\"device\", \"_time\"]) |> mean() |> group(columns: [\"device\"])\n\njoin(tables: {c: base, a: cavg}, on: [\"_time\", \"device\"])\n  |> map(fn: (r) => ({ _time: r._time, cell: r._field, _value: r._value_c - r._value_a }))\n  |> group(columns: [\"cell\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line", "lineWidth": 1, "fillOpacity": 0,
+            "pointSize": 0, "spanNulls": true, "axisLabel": "mV from pack mean"
+          }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["last", "mean"] }
+      }
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Rank stability -- highest/lowest cell per day",
+      "description": "Which cell index is highest and lowest, per pack per day (mode over the 10:00-14:00 window). If the ranking stops matching the baseline (cubix_1 high=09/low=06, cubix_2 high=11/low=08, lls_1 low=15 as of 2026-08-27), either the balancer made real progress or a different cell started degrading -- worth knowing either way.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "influxdb", "uid": "influxdb" },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"energy\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"battery\")\n  |> filter(fn: (r) => r._field == \"cell_max_index\" or r._field == \"cell_min_index\")\n  |> hourSelection(start: 10, stop: 14)\n  |> group(columns: [\"device\", \"_field\"])\n  |> aggregateWindow(every: 1d, fn: mode, createEmpty: false)\n  |> keep(columns: [\"_time\", \"device\", \"_field\", \"_value\"])\n  |> sort(columns: [\"_time\"], desc: true)"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [{ "displayName": "Time", "desc": true }]
+      }
+    }
+  ]
+}

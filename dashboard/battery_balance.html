@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Battery Balance — angrycat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=Barlow:wght@400;500&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0F1519; --panel:#161F25; --panel-2:#1B262D;
+  --rule:#2A3841; --rule-lit:#3B4E5A;
+  --text:#E4EBEF; --muted:#74868F; --dim:#4C5C65;
+  --pv:#E8B33C; --batt:#3FA7A0; --grid:#7C90B5; --load:#F0F3F5;
+  --warn:#D2694A; --ok:#4E9E6A;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --cond:"Barlow Condensed",system-ui,sans-serif;
+  --body:"Barlow",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text)}
+body{font-family:var(--body);font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;min-height:100vh;padding:clamp(10px,1.6vw,22px)}
+.wrap{max-width:1500px;margin:0 auto}
+
+header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;
+  padding-bottom:9px;margin-bottom:12px;border-bottom:1px solid var(--rule)}
+h1{font-family:var(--cond);font-weight:600;font-size:clamp(19px,2.4vw,25px);
+  letter-spacing:.14em;text-transform:uppercase;margin:0}
+h1 span{color:var(--dim);font-weight:400}
+a.back{font-family:var(--mono);font-size:11px;color:var(--muted);text-decoration:none}
+a.back:hover{color:var(--text)}
+a.back.cur{color:var(--pv)}
+
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:3px;
+  padding:clamp(10px,1.5vw,16px)}
+.card > h2{font-family:var(--cond);font-size:12px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--muted);margin:0 0 12px;font-weight:600}
+.sub{font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.6}
+
+table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
+th{text-align:left;color:var(--dim);font-weight:500;padding:5px 10px;
+  border-bottom:1px solid var(--rule)}
+td{padding:5px 10px;border-bottom:1px solid var(--rule);color:var(--text)}
+tr:last-child td{border-bottom:none}
+
+.chart{width:100%;display:block;border:0}
+</style>
+</head>
+<body><div class="wrap">
+
+<header>
+  <h1>Battery Balance <span>/ angrycat</span></h1>
+  <a class="back" href="solar_dash.html">dashboard</a>
+  <a class="back" href="solar_settings.html">settings</a>
+  <a class="back" href="config.html">config</a>
+  <a class="back cur" href="battery_balance.html">balance</a>
+</header>
+
+<div class="card" style="margin-bottom:12px">
+  <h2>What this tracks</h2>
+  <div class="sub">
+    Cell-to-cell voltage spread across all three packs (cubix_1, cubix_2, lls_1),
+    trended over weeks rather than the live snapshot the main dashboard shows.
+    The question this answers: is the passive balancer actually closing the gap
+    between cells, or is a flat spread a real capacity mismatch balancing can
+    never fix? See each panel's own description (hover the info icon) for how
+    to read it. Every number below comes from fields app/derive.py already
+    computes on every poll -- nothing here needed a poller change to exist.
+  </div>
+</div>
+
+<div class="card">
+  <!-- Full Grafana dashboard embed, same pattern as solar_dash.html's energy
+       overview panel -- bare &kiosk hides the nav chrome but keeps the
+       dashboard's own time-range picker, so the 90d default here is
+       adjustable without editing this page. See
+       grafana/provisioning/dashboards/json/battery_balance.json for the
+       panels; a new one there is a Flux query and a panelId, not new JS
+       here. Proxied through nginx at /grafana/, same-origin. -->
+  <iframe id="balFrame" class="chart" style="height:1300px"
+    src="/grafana/d/battery-balance/battery-balance?orgId=1&kiosk&theme=dark&from=now-90d&to=now"
+    loading="lazy"></iframe>
+</div>
+
+<div class="card" style="margin-top:12px">
+  <h2>Baseline (2026-08-27, midday charge)</h2>
+  <div class="sub" style="margin-bottom:10px">
+    Reference point from when this page was built -- compare Panel 1 and
+    Panel 5 above against this to see whether things have moved.
+  </div>
+  <table>
+    <thead><tr><th>Metric</th><th>cubix_1</th><th>cubix_2</th><th>lls_1</th></tr></thead>
+    <tbody>
+      <tr><td>Delta @ 3.450V (midday)</td><td>69–70 mV</td><td>20–26 mV</td><td>21–23 mV</td></tr>
+      <tr><td>Peak cell, 2-day window</td><td>3572 mV</td><td>3543 mV</td><td>3482 mV</td></tr>
+      <tr><td>Persistent high cell</td><td>09</td><td>11</td><td>—</td></tr>
+      <tr><td>Persistent low cell</td><td>06</td><td>08</td><td>15</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</div>
+</body>
+</html>
