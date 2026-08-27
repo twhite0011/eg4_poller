@@ -12,8 +12,11 @@ invocations, is DeriveState below: one instance, held by Runner, passed into
 every poll.
 """
 
+import logging
 import time
 from typing import Any
+
+LOG = logging.getLogger("eg4poll.derive")
 
 
 def _num(x) -> float | None:
@@ -65,6 +68,10 @@ class DeriveState:
     def __init__(self):
         self._energy: dict[str, dict[str, float]] = {}
         self._last: dict[str, dict[str, Any]] = {}
+        # device -> (problem, fault_signature) as of the last poll -- lets
+        # _log_fault_change log only on a real transition, not every ~5s
+        # tick. See _log_fault_change below.
+        self._fault: dict[str, tuple[bool, str]] = {}
 
     def integrate(self, key: str, tick_ts: float, charge_w: float, discharge_w: float) -> dict:
         prev = self._energy.get(key)
@@ -90,6 +97,49 @@ class DeriveState:
             "energy_out_kwh": _r(tot_out / 1000, 5),
             "energy_net_kwh": _r((tot_in - tot_out) / 1000, 5),
         }
+
+
+# Which decoded fields actually indicate a FAULT, per driver -- JBD
+# (app/jbd.py) exposes "faults" (a list, turned into faults_list by the
+# passthrough loop below); the EG4 LL-S (app/eg4ll.py) exposes separate
+# warning/protection/error strings instead. Checking all of them generically
+# means this needs no per-driver branch, and picks up whichever ones a given
+# pack actually has. Deliberately NOT status_state: standby/charging/
+# discharging is normal operational state, not a fault -- it changes
+# constantly in ordinary use, and including it here would log a spurious
+# "fault cleared" on every routine charge<->discharge transition.
+_FAULT_DETAIL_KEYS = ("warning_active", "protection_active",
+                      "error_active", "faults_list")
+
+
+def _fault_signature(fields: dict) -> str:
+    parts = [f"{k}={fields[k]}" for k in _FAULT_DETAIL_KEYS if fields.get(k)]
+    return "; ".join(parts)
+
+
+def _log_fault_change(state: DeriveState, device: str, fields: dict) -> None:
+    """LOG.warning() on a real fault state transition only -- not on every
+    poll a fault stays active, not on startup if the pack is already
+    nominal, and not on an ordinary status_state change (see
+    _FAULT_DETAIL_KEYS). This is the only place any of status_state/
+    warning_active/protection_active/error_active/faults/problem reach the
+    container's own logs; otherwise they only ever flow through
+    MQTT/InfluxDB/the dashboard.
+    """
+    problem = bool(fields.get("problem"))
+    cur = (problem, _fault_signature(fields))
+    prev = state._fault.get(device)
+    if prev == cur:
+        return
+    state._fault[device] = cur
+    if problem:
+        state_ctx = f" (state={fields['status_state']})" if fields.get("status_state") else ""
+        LOG.warning("%s: fault -- %s%s", device,
+                    cur[1] or "problem=true (no decoded detail)", state_ctx)
+    elif prev is not None:
+        LOG.warning("%s: fault cleared", device)
+    # prev is None and not problem: first poll ever, already nominal --
+    # nothing changed, nothing to log.
 
 
 def transform(state: DeriveState, envelope: dict) -> dict | None:
@@ -235,6 +285,8 @@ def transform(state: DeriveState, envelope: dict) -> dict | None:
         if temps:
             add("temp_max_c", max(temps))
             add("temp_min_c", min(temps))
+
+        _log_fault_change(state, envelope["device"], fields)
 
     # Stash for the cross-device join.
     state._last[envelope["device"]] = {"tick_ts": tick_ts, "tags": tags, "fields": fields}
