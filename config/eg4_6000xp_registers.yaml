@@ -145,21 +145,24 @@ holding:
   - {addr: 99,  key: set_charge_voltage,           type: u16, scale: 0.1, unit: V, min: 48.0, max: 58.4, writable: true, setting: 7}
   - {addr: 144, key: set_float_voltage,             type: u16, scale: 0.1, unit: V, min: 48.0, max: 56.0, writable: true, setting: 8}
 
-  # --- Battery cutoff voltage (LCD setting 11) ---
-  # Distinct from the Setting 12 discharge cutoff below -- confirmed on the
-  # panel by two separate differential scans (46.0->47.0 V as raw 460->470,
-  # then 47.0->47.5 V as raw 470->475, both x0.1 at 100). What actually
-  # differs functionally from Setting 12's cutoff is not known yet -- this
-  # inverter has two distinct low-voltage settings and only one has been
-  # correlated to real behavior so far.
-  - {addr: 100, key: set_battery_cutoff_voltage,    type: u16, scale: 0.1, unit: V, min: 44.0, max: 52.0, writable: true, setting: 11}
+  # --- Grid-switch cutoff voltage (LCD setting 11, "Off-Grid/On-Grid Cutoff") ---
+  # NOT the discharge cutoff below -- this is the threshold where the
+  # inverter stops drawing on the battery and switches to the utility grid
+  # (if available), rather than the absolute floor that stops discharge
+  # outright. Confirmed on the panel by two separate differential scans
+  # (46.0->47.0 V as raw 460->470, then 47.0->47.5 V as raw 470->475, both
+  # x0.1 at 100).
+  - {addr: 100, key: set_grid_switch_cutoff_voltage, type: u16, scale: 0.1, unit: V, min: 44.0, max: 52.0, writable: true, setting: 11}
 
-  # --- Discharge cutoff (LCD setting 12) ---
-  # ONE LCD page with two fields. Setting 10 (discharge type, register 120
-  # bit 4 -- a shared bitmask, not yet exposed here) picks which of these two
-  # actually gets enforced: Voltage uses set_discharge_cutoff_voltage, SOC
-  # uses set_eod_pct. Found by differential scan: 50.0->50.5 V read back as
-  # raw 500->505 (x0.1) at 169.
+  # --- Discharge cutoff (LCD setting 12, "Battery Discharge Cutoff / End of
+  # Discharge") ---
+  # The absolute lower limit -- below this the inverter stops discharging
+  # the battery entirely, to protect it from deep depletion. ONE LCD page
+  # with two fields; Setting 10 (discharge type, register 120 bit 4 -- a
+  # shared bitmask, not yet exposed here) picks which of these two actually
+  # gets enforced: Voltage uses set_discharge_cutoff_voltage, SOC uses
+  # set_eod_pct. Found by differential scan: 50.0->50.5 V read back as raw
+  # 500->505 (x0.1) at 169.
   - {addr: 169, key: set_discharge_cutoff_voltage,  type: u16, scale: 0.1, unit: V, min: 44.0, max: 52.0, writable: true, setting: 12}
   # End-of-discharge floor. The lower bound is 15, not the inverter's own 10:
   # at 15% of a 200 Ah bank there is still ~1.5 kWh of reserve, and a typo

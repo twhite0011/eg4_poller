@@ -218,13 +218,13 @@ const GROUPS = [
        "Should stay below charge voltage — not cross-validated against it here. Found by differential scan (register 144)."],
     ]},
 
-  { num: 11, title: "Battery cutoff voltage", sub: "Distinct from the Setting 12 discharge cutoff below — what it actually does differently isn't confirmed yet",
+  { num: 11, title: "Grid-switch cutoff voltage", sub: "Off-Grid/On-Grid Cutoff — where the inverter stops drawing on the battery and switches to utility power, if available",
     rows: [
-      ["set_battery_cutoff_voltage","Battery cutoff voltage","V",44.0,52.0,0.1,
-       "Found by differential scan (register 100), confirmed twice as a value distinct from Setting 12's cutoff."],
+      ["set_grid_switch_cutoff_voltage","Grid-switch cutoff","V",44.0,52.0,0.1,
+       "NOT the discharge cutoff below — this only switches the source to grid, it doesn't stop discharge outright. Found by differential scan (register 100)."],
     ]},
 
-  { num: 12, title: "Discharge cutoff", sub: "Eod — one LCD page, two fields; Setting 10 (discharge type, not yet exposed here) picks which one is enforced",
+  { num: 12, title: "Discharge cutoff", sub: "Battery Discharge Cutoff / End of Discharge — the absolute floor; below this the inverter stops discharging the battery entirely. Setting 10 (discharge type, not yet exposed here) picks which field below is enforced",
     rows: [
       ["set_discharge_cutoff_voltage","Cutoff voltage","V",44.0,52.0,0.1,
        "Used when Setting 10 (discharge type) = Voltage. Found by differential scan (register 169)."],
