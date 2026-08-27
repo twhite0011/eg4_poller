@@ -68,7 +68,7 @@
       "targets": [
         {
           "refId": "A",
-          "query": "from(bucket: \"energy\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"battery\" and r._field == \"cell_max_mv\")\n  |> map(fn: (r) => ({ r with _value: 3650.0 - r._value }))\n  |> group(columns: [\"device\"])\n  |> aggregateWindow(every: 1d, fn: min, createEmpty: false)\n  |> last()"
+          "query": "from(bucket: \"energy\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"battery\" and r._field == \"cell_max_mv\")\n  |> map(fn: (r) => ({ r with _value: 3650.0 - float(v: r._value) }))\n  |> group(columns: [\"device\"])\n  |> aggregateWindow(every: 1d, fn: min, createEmpty: false)\n  |> last()"
         }
       ],
       "fieldConfig": {
