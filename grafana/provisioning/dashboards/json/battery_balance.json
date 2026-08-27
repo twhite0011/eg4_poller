@@ -32,7 +32,7 @@
       "targets": [
         {
           "refId": "A",
-          "query": "from(bucket: \"energy\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"battery\")\n  |> filter(fn: (r) => r._field == \"cell_delta_mv\" or r._field == \"cell_avg_mv\")\n  |> hourSelection(start: 10, stop: 14)\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.cell_avg_mv >= 3445.0 and r.cell_avg_mv <= 3455.0)\n  |> map(fn: (r) => ({ _time: r._time, device: r.device, _value: r.cell_delta_mv }))\n  |> group(columns: [\"device\"])\n  |> aggregateWindow(every: 1d, fn: max, createEmpty: false)"
+          "query": "from(bucket: \"energy\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"battery\")\n  |> filter(fn: (r) => r._field == \"cell_delta_mv\" or r._field == \"cell_avg_mv\")\n  |> hourSelection(start: 10, stop: 14)\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => r.cell_avg_mv >= 3445.0 and r.cell_avg_mv <= 3455.0)\n  |> map(fn: (r) => ({ _time: r._time, device: r.device, _value: r.cell_delta_mv }))\n  |> group(columns: [\"device\"])\n  |> aggregateWindow(every: 1d, fn: max, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"device\"])"
         }
       ],
       "fieldConfig": {
@@ -68,7 +68,7 @@
       "targets": [
         {
           "refId": "A",
-          "query": "from(bucket: \"energy\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"battery\" and r._field == \"cell_max_mv\")\n  |> map(fn: (r) => ({ r with _value: 3650.0 - float(v: r._value) }))\n  |> group(columns: [\"device\"])\n  |> aggregateWindow(every: 1d, fn: min, createEmpty: false)\n  |> last()"
+          "query": "from(bucket: \"energy\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"battery\" and r._field == \"cell_max_mv\")\n  |> map(fn: (r) => ({ r with _value: 3650.0 - float(v: r._value) }))\n  |> group(columns: [\"device\"])\n  |> aggregateWindow(every: 1d, fn: min, createEmpty: false)\n  |> last()\n  |> keep(columns: [\"_time\", \"_value\", \"device\"])"
         }
       ],
       "fieldConfig": {
@@ -103,7 +103,7 @@
       "targets": [
         {
           "refId": "A",
-          "query": "from(bucket: \"energy\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"battery\" and r._field == \"cell_avg_mv\")\n  |> filter(fn: (r) => r._value > 3400.0)\n  |> aggregateWindow(every: 1d, fn: count, createEmpty: true)\n  |> map(fn: (r) => ({ r with _value: float(v: r._value) * 5.0 / 60.0 }))\n  |> group(columns: [\"device\"])"
+          "query": "from(bucket: \"energy\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"battery\" and r._field == \"cell_avg_mv\")\n  |> filter(fn: (r) => r._value > 3400.0)\n  |> aggregateWindow(every: 1d, fn: count, createEmpty: true)\n  |> map(fn: (r) => ({ r with _value: float(v: r._value) * 5.0 / 60.0 }))\n  |> group(columns: [\"_time\"])\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"device\"], valueColumn: \"_value\")\n  |> keep(columns: [\"_time\", \"cubix_1\", \"cubix_2\", \"lls_1\"])\n  |> sort(columns: [\"_time\"])"
         }
       ],
       "fieldConfig": {
@@ -160,7 +160,7 @@
       "targets": [
         {
           "refId": "A",
-          "query": "from(bucket: \"energy\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"battery\")\n  |> filter(fn: (r) => r._field == \"cell_max_index\" or r._field == \"cell_min_index\")\n  |> hourSelection(start: 10, stop: 14)\n  |> group(columns: [\"device\", \"_field\"])\n  |> aggregateWindow(every: 1d, fn: mode, createEmpty: false)\n  |> keep(columns: [\"_time\", \"device\", \"_field\", \"_value\"])\n  |> sort(columns: [\"_time\"], desc: true)"
+          "query": "from(bucket: \"energy\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"battery\")\n  |> filter(fn: (r) => r._field == \"cell_max_index\" or r._field == \"cell_min_index\")\n  |> hourSelection(start: 10, stop: 14)\n  |> group(columns: [\"device\", \"_field\"])\n  |> aggregateWindow(every: 1d, fn: mode, createEmpty: false)\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"device\", \"_field\"], valueColumn: \"_value\")\n  |> keep(columns: [\"_time\", \"cubix_1_cell_max_index\", \"cubix_1_cell_min_index\", \"cubix_2_cell_max_index\", \"cubix_2_cell_min_index\", \"lls_1_cell_max_index\", \"lls_1_cell_min_index\"])\n  |> sort(columns: [\"_time\"], desc: true)"
         }
       ],
       "fieldConfig": { "defaults": { "unit": "none" } },
