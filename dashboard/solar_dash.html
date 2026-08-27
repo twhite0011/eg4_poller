@@ -690,7 +690,18 @@ function packCard(id,d){
     return `<div class="cell ${cls}" title="cell ${i+1}: ${v} mV"><i style="${
       rel>=0?`bottom:50%;height:${h}px`:`top:50%;height:${h}px`}"></i></div>`;
   }).join("");
-  const flt = (d.faults_list||"").length ? d.faults_list : (d.problem?"fault":"");
+  // JBD packs (Cubix) report faults_list directly. The EG4 LL-S has no
+  // single "faults" field -- it reports warning/protection/error separately
+  // (see app/eg4ll.py) -- so check all three and join whichever are set.
+  // Falls back to the bare word "fault" only if problem is set with no
+  // decoded detail at all, matching app/derive.py's _log_fault_change,
+  // which treats an undecoded problem the same way in the container logs.
+  const fault_parts = [d.faults_list,
+    ...["warning_active","protection_active","error_active"].map(k=>d[k])]
+    .filter(Boolean);
+  const flt = fault_parts.length
+    ? fault_parts.join("; ").replace(/_/g," ").replace(/,/g,", ")
+    : (d.problem ? "fault" : "");
   return `<div class="card pack">
     <h2>${id.replace(/_/g," ")}</h2>
     <div class="model">${MODELS[id]||""}</div>
