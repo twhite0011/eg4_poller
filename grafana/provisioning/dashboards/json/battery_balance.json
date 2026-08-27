@@ -95,7 +95,7 @@
     },
     {
       "id": 3,
-      "type": "barchart",
+      "type": "timeseries",
       "title": "Balancer dwell time (min/day > 3.40V)",
       "description": "Minutes per day each pack's average cell voltage sits above 3.40V -- the opportunity window a passive balancer actually gets to work with. This is the input to whether Panel 1 can improve at all; target is 120+ min/day from a full 10:00-14:00 absorb hold. Assumes a 5s poll interval -- update the '5.0' constant in this panel's query if that ever changes.",
       "gridPos": { "h": 6, "w": 16, "x": 8, "y": 9 },
@@ -107,7 +107,10 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "m" },
+        "defaults": {
+          "unit": "m",
+          "custom": { "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 0, "axisLabel": "min/day" }
+        },
         "overrides": [
           { "matcher": { "id": "byName", "options": "cubix_1" },
             "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#E8B33C" } }] },
@@ -118,8 +121,7 @@
         ]
       },
       "options": {
-        "orientation": "vertical",
-        "xTickLabelRotation": 0,
+        "tooltip": { "mode": "multi", "sort": "desc" },
         "legend": { "displayMode": "list", "placement": "bottom" }
       }
     },
