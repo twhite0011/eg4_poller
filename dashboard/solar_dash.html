@@ -122,6 +122,14 @@ a.back:hover{color:var(--text)}
 footer{margin-top:14px;font-family:var(--mono);font-size:10.5px;color:var(--dim);
   display:flex;gap:18px;flex-wrap:wrap}
 .fault{color:var(--warn)}
+.diag table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
+.diag th{text-align:left;color:var(--dim);font-weight:500;padding:6px 10px;
+  border-bottom:1px solid var(--rule)}
+.diag td{padding:6px 10px;border-bottom:1px solid var(--rule)}
+.diag tr:last-child td{border-bottom:none}
+.diag td.pack{font-family:var(--cond);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.diag td.none{color:var(--dim)}
+.diag td.na{color:var(--dim)}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -237,6 +245,21 @@ footer{margin-top:14px;font-family:var(--mono);font-size:10.5px;color:var(--dim)
 </div>
 
 <div class="packs" id="packs"></div>
+
+<div class="card diag" style="margin-top:12px">
+  <h2>Battery diagnostics</h2>
+  <div class="sub" style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:10px">
+    Status/warning/protection/error, decoded separately (see app/eg4ll.py --
+    Cubix packs only carry one combined protection bitmask, no separate
+    warning/error registers, so those columns read "—" for them). The
+    inverter's own copy of these decode transitions is logged to
+    app/derive.py's fault-change log, not just shown live here.
+  </div>
+  <table>
+    <thead><tr><th>Pack</th><th>Status</th><th>Warning</th><th>Protection</th><th>Error</th></tr></thead>
+    <tbody id="diagBody"></tbody>
+  </table>
+</div>
 
 <div class="legend">
   <div><span class="prov measured"></span><span title="Read directly by a dedicated instrument">Measured</span></div>
@@ -675,7 +698,7 @@ function render(){
   $("tSoc").textContent = soc==null ? "—" : soc.toFixed(0)+"%";
   $("tRate").textContent = bank ? `${bw>=0?"+":""}${fmtW(bw)} W` : "—";
 
-  renderPacks(); renderFooter(); drawForecast();
+  renderPacks(); renderDiag(); renderFooter(); drawForecast();
 }
 
 function packCard(id,d){
@@ -723,6 +746,43 @@ function packCard(id,d){
 }
 const renderPacks = () =>
   $("packs").innerHTML = Object.keys(S.packs).sort().map(id=>packCard(id,S.packs[id])).join("");
+
+// "—" = this driver has no such register at all (Cubix/JBD has one combined
+// protection bitmask only -- see app/jbd.py); "none" = the register exists
+// and read clean, no bit set. Different states, worth distinguishing rather
+// than collapsing both into one dash.
+function diagCell(text, isFault){
+  if (text == null) return `<td class="na">—</td>`;
+  if (!text) return `<td class="none">none</td>`;
+  return `<td class="${isFault?"fault":""}">${text.replace(/_/g," ").replace(/,/g,", ")}</td>`;
+}
+function diagRow(id, d){
+  // eg4ll-decoded packs always carry status_hex; JBD packs never do.
+  const isEg4ll = d.status_hex !== undefined;
+  if (isEg4ll){
+    return `<tr><td class="pack">${id.replace(/_/g," ")}</td>
+      ${diagCell(d.status_state, false)}
+      ${diagCell(d.warning_active, !!d.warning_active)}
+      ${diagCell(d.protection_active, !!d.protection_active)}
+      ${diagCell(d.error_active, !!d.error_active)}
+    </tr>`;
+  }
+  // faults_list only exists when non-empty (derive.py only emits the joined
+  // string form when the list has entries); faults_count is unconditional,
+  // so it's the reliable "this pack has a protection register at all, and
+  // it currently reads clean" signal -- distinct from faults_list being
+  // undefined because the field genuinely doesn't exist on this driver.
+  const hasProtection = d.faults_count !== undefined;
+  return `<tr><td class="pack">${id.replace(/_/g," ")}</td>
+    <td class="na">—</td>
+    <td class="na">—</td>
+    ${hasProtection ? diagCell(d.faults_list || "", !!d.faults_list) : `<td class="na">—</td>`}
+    <td class="na">—</td>
+  </tr>`;
+}
+const renderDiag = () =>
+  $("diagBody").innerHTML = Object.keys(S.packs).sort().map(id=>diagRow(id,S.packs[id])).join("")
+    || `<tr><td colspan="5" style="color:var(--dim)">no packs reporting yet</td></tr>`;
 
 function renderFooter(){
   const b = S.bank;
