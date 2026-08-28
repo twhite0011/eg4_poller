@@ -251,9 +251,10 @@ footer{margin-top:14px;font-family:var(--mono);font-size:10.5px;color:var(--dim)
   <div class="sub" style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:10px">
     Status/warning/protection/error, decoded separately (see app/eg4ll.py --
     Cubix packs only carry one combined protection bitmask, no separate
-    warning/error registers, so those columns read "—" for them). The
-    inverter's own copy of these decode transitions is logged to
-    app/derive.py's fault-change log, not just shown live here.
+    warning/error registers, so those columns read "—" for them). Every
+    transition here is also logged server-side (app/derive.py's fault-change
+    log), so a fault that clears before you check this page still leaves a
+    trace in docker logs / InfluxDB.
   </div>
   <table>
     <thead><tr><th>Pack</th><th>Status</th><th>Warning</th><th>Protection</th><th>Error</th></tr></thead>
