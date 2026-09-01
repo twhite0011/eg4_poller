@@ -267,6 +267,12 @@ const GROUPS = [
    the whole mapped picture rather than quietly omitting things. */
 const READONLY = [];
 
+/* key -> unit ("A", "V", "%", or "" for time settings, which carry no unit
+   string in their row tuple), flattened once from GROUPS so paint() doesn't
+   need to search every group on every poll. */
+const UNIT_OF = Object.fromEntries(
+  GROUPS.flatMap(g => g.rows).map(([key,,unit]) => [key, unit || ""]));
+
 const $ = id => document.getElementById(id);
 let armed = false, state = {}, client = null, pending = null;
 let queue = [], awaiting = null, dryRun = false, busy = false, timer = null;
@@ -507,7 +513,8 @@ function paint(){
     // otherwise throw here and silently kill everything later in paint().
     if (!cur || !el) continue;
     if (v === undefined || v === null){ cur.textContent = "—"; continue; }
-    cur.textContent = v;
+    const unit = UNIT_OF[key];
+    cur.textContent = unit ? `${v} ${unit}` : v;
     el.placeholder = String(v);     // the box shows what you WANT, not what is
 
     // A write is confirmed when a poll actually reports the new value --
