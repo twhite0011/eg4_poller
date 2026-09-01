@@ -206,6 +206,11 @@ class InverterDevice:
         self.input_regs = [Reg(**r) for r in regmap.get("input", [])]
         self.holding_regs = [Reg(**r) for r in regmap.get("holding", [])]
         self.state_map = {int(k): v for k, v in regmap.get("state_map", {}).items()}
+        # Register 120's two packed sub-fields (see the holding entries and
+        # comments in the register map) -- same lookup-table mechanism as
+        # state_map, just for a different register.
+        self.ac_charge_mode_map = {int(k): v for k, v in regmap.get("ac_charge_mode_map", {}).items()}
+        self.discharge_control_map = {int(k): v for k, v in regmap.get("discharge_control_map", {}).items()}
 
         # Catch an address defined twice in the same space. Sharing an
         # address is legitimate ONLY for packed sub-fields, which are
@@ -338,6 +343,11 @@ class InverterDevice:
         # the poller. Raw at collection, derived in Node-RED.
         state_raw = values.get("state_raw")
         values["state"] = self.state_map.get(state_raw) if state_raw is not None else None
+
+        acm_raw = values.get("ac_charge_mode_raw")
+        values["ac_charge_mode"] = self.ac_charge_mode_map.get(acm_raw) if acm_raw is not None else None
+        dc_raw = values.get("discharge_control_raw")
+        values["discharge_control"] = self.discharge_control_map.get(dc_raw) if dc_raw is not None else None
 
         # Inverter clock (LCD setting 1), assembled from three packed holding
         # registers. Decoding is protocol parsing, not arithmetic, so it

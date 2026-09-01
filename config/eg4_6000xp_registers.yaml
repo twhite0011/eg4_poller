@@ -196,11 +196,59 @@ holding:
   - {addr: 156, key: set_ac_first_start_3,  type: time, writable: true, setting: 15}
   - {addr: 157, key: set_ac_first_end_3,    type: time, writable: true, setting: 15}
 
-# Working-mode decode for register 0
+  # --- Register 120: two packed enums, read-only (LCD setting unconfirmed) ---
+  # This is the SAME register the discharge-type bitmask investigation found
+  # earlier (bit 4 flips between the two differential scans, 2->18, when
+  # Setting 10 toggles Voltage<->SOC). An independent, unrelated ESPHome
+  # project targeting this same inverter documents the full field layout:
+  # bits 0x0E (shifted 1, masked to 3 bits -> codes 0-5) = "AC Charge Based
+  # On" (Disabled/Time/Voltage/SOC/Voltage+Time/SOC+Time); bits 0x30 (shifted
+  # 4, masked to 2 bits -> codes 0-2) = "Discharge Control"
+  # (Voltage/SOC/Both) -- code 1 here is exactly the "SOC" mode Setting 10's
+  # scan already confirmed. Decoded via ac_charge_mode_map/
+  # discharge_control_map below, same mechanism as state_map for register 0.
+  # No min/max/writable: reading two sub-fields of a shared register is safe;
+  # WRITING one without a read-modify-write over the whole word would
+  # clobber the other, which is exactly why this stays read-only for now.
+  - {addr: 120, key: ac_charge_mode_raw,     type: u16, scale: 1, shift: 1, bitmask: 0x07, unit: raw}
+  - {addr: 120, key: discharge_control_raw,  type: u16, scale: 1, shift: 4, bitmask: 0x03, unit: raw}
+
+# Working-mode decode for register 0. The six original entries are our own
+# field-confirmed labels -- kept as-is rather than renamed to match the
+# ESPHome project's wording below, since these exact strings are already
+# recorded as the "state" field's history in InfluxDB and changing them would
+# split one state's history into two different string values. The seven new
+# entries (marked) fill gaps our own testing never happened to hit; sourced
+# from an independent ESPHome project targeting the same 6000XP, not
+# independently confirmed against this LCD -- if one of these ever shows up
+# and looks wrong, that's the reason why.
 state_map:
   0x0000: standby
   0x0001: fault
+  0x0002: firmware_updating   # new, unconfirmed against this LCD
+  0x0008: pv_charge           # new, unconfirmed against this LCD
   0x0010: grid
+  0x0011: bypass              # new, unconfirmed against this LCD
+  0x0019: pv_charge_bypass    # new, unconfirmed against this LCD
+  0x0020: ac_charge           # new, unconfirmed against this LCD
+  0x0040: battery_offgrid
+  0x0080: pv_offgrid          # new, unconfirmed against this LCD
+  0x0088: pv_charge_offgrid   # new, unconfirmed against this LCD
   0x00c0: solar_battery
   0x0014: battery_grid
-  0x0040: battery_offgrid
+
+# Register 120 sub-field decodes -- see the holding entries above for how
+# ac_charge_mode_raw/discharge_control_raw are extracted. discharge_control's
+# code 1 ("soc") is the exact bit this project's own differential scan
+# confirmed for Setting 10 (discharge type).
+ac_charge_mode_map:
+  0: disabled
+  1: time
+  2: voltage
+  3: soc
+  4: voltage_time
+  5: soc_time
+discharge_control_map:
+  0: voltage
+  1: soc
+  2: both
