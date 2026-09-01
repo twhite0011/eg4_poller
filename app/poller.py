@@ -184,6 +184,17 @@ def encode(reg: Reg, value) -> int:
     return raw
 
 
+# Setting 11's SOC threshold must not exceed Setting 12's -- confirmed
+# against this exact unit's real LCD: Setting 11 ("Cutoff") reads 5%,
+# Setting 12 ("EOD") reads 10%. The grid-switch threshold (11) fires at a
+# higher remaining charge than the absolute floor (12), so 11 <= 12 always.
+# Each pair is (lower, higher); write_holding() enforces it in both
+# directions from this one list. Checked in the write path, not just
+# suggested in the UI, since the register map/write path is this project's
+# actual safety boundary (see write_holding()'s own docstring).
+_SOC_ORDER_PAIRS = [("set_grid_switch_cutoff_soc", "set_eod_pct")]
+
+
 # ----------------------------------------------------------------------------
 # Device
 # ----------------------------------------------------------------------------
@@ -470,6 +481,37 @@ class InverterDevice:
             if self.client is None or not self.client.connected:
                 if not await self.connect():
                     return {"ok": False, "error": "not connected"}
+
+            # Cross-field order check (see _SOC_ORDER_PAIRS). Best-effort: if
+            # the partner register can't be read, the write proceeds rather
+            # than blocking on an unrelated bus hiccup -- min/max and the
+            # read-back verification below are the real safety net; this is
+            # belt-and-suspenders on top of them, not instead of them.
+            for lo_key, hi_key in _SOC_ORDER_PAIRS:
+                if key not in (lo_key, hi_key):
+                    continue
+                other_key = hi_key if key == lo_key else lo_key
+                other_reg = next((r for r in self.holding_regs if r.key == other_key), None)
+                if other_reg is None:
+                    break
+                try:
+                    orr = await self.client.read_holding_registers(
+                        address=other_reg.addr, count=1, slave=self.unit)
+                    if orr.isError():
+                        break
+                    other_val = decode(other_reg, [orr.registers[0]])
+                except Exception:
+                    break
+                v = float(value)
+                if key == lo_key and v > other_val:
+                    return {"ok": False, "error":
+                            f"{key}={v} would exceed {other_key}={other_val} "
+                            f"(Setting 11 must stay <= Setting 12)"}
+                if key == hi_key and v < other_val:
+                    return {"ok": False, "error":
+                            f"{key}={v} would fall below {other_key}={other_val} "
+                            f"(Setting 12 must stay >= Setting 11)"}
+                break
 
             before = None
             try:
