@@ -86,16 +86,14 @@ input:
   # register spaces, so not a conflict -- but flagged as UNVERIFIED.
   - {addr: 153, key: ac_couple_power,     type: u16, scale: 1,    unit: W, verified: false}
 
-  # --- Candidate: AC couple enabled (UNVERIFIED) ---
-  # Sourced from an independent ESPHome project targeting this same
-  # inverter (binary_sensor, register 77 bit 0x02) -- that project's other
-  # addresses cross-validated very well against this project's own
-  # differential-scan findings (see holding register 120 below), which is
-  # why this one is trusted enough to add for a look, unlike the low-
-  # confidence candidates sourced only from a register CSV that was
-  # directly contradicted by this project's own hardware tests. Still not
-  # independently confirmed against THIS LCD -- compare before trusting.
-  - {addr: 77,  key: cand_ac_couple_enabled, type: u16, scale: 1, shift: 1, bitmask: 0x01, unit: raw, verified: false}
+  # DISPROVEN, not just unconfirmed: an independent ESPHome project claimed
+  # register 77 bit 0x02 was "AC Couple Enabled" (binary_sensor). A real
+  # differential scan on this unit -- enabled, dumped, disabled, dumped,
+  # diffed -- found register 77 (input space) completely unchanged across
+  # the toggle; the only registers that moved (64, 66, 69) look like
+  # ordinary temperature/counter drift, not a deliberate bitmask change.
+  # Removed rather than left as a misleading "unverified" value. If this
+  # ever needs re-finding, it isn't at address 77 on this unit.
 
 # Holding registers.
 #

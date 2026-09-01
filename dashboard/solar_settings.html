@@ -246,7 +246,7 @@ const GROUPS = [
       ["set_ac_charge_end_3","Window 3 end","",0,0,0,""],
     ]},
 
-  { num: 15, title: "AC input load timer", sub: "\"AC First\" — windows where the grid powers the load directly",
+  { num: 15, title: "Grid input load timer", sub: "\"Grid First\" (LCD calls this AC Input Load Timer / AC First) — windows where the grid powers the load directly",
     rows: [
       ["set_ac_first_start_1","Window 1 start","",0,0,0,""],
       ["set_ac_first_end_1","Window 1 end","",0,0,0,""],
@@ -281,8 +281,6 @@ const READONLY = [
     "UNVERIFIED (register 220). Higher confidence, ESPHome-sourced. Only relevant if you have an AC-coupled PV source."],
   ["cand", "cand_ac_couple_end_soc", "AC couple end SOC", "%",
     "UNVERIFIED (register 221). Higher confidence, ESPHome-sourced. Only relevant if you have an AC-coupled PV source."],
-  ["cand", "cand_ac_couple_enabled", "AC couple enabled (0/1)", "",
-    "UNVERIFIED (input register 77, bit 1). Higher confidence, ESPHome-sourced. Only relevant if you have an AC-coupled PV source."],
   ["cand", "cand_battery_type", "Battery type (0/1/2 raw)", "",
     "UNVERIFIED (register 104). LOWER confidence -- sourced only from a register CSV this project's own hardware tests directly disproved for addresses 105 and 120. Compare carefully."],
   ["cand", "cand_battery_ov_threshold", "Battery OV threshold", "V",
