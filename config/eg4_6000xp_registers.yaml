@@ -224,11 +224,21 @@ holding:
   # position (from the differential scan) and the label text (ESPHome's
   # wording) read correctly. Decoded via ac_charge_mode_map/
   # discharge_control_map below, same mechanism as state_map for register 0.
-  # No min/max/writable: reading two sub-fields of a shared register is safe;
-  # WRITING one without a read-modify-write over the whole word would
-  # clobber the other, which is exactly why this stays read-only for now.
+  # No min/max/writable: reading three sub-fields of a shared register is
+  # safe; WRITING one without a read-modify-write over the whole word would
+  # clobber the others, which is exactly why this stays read-only for now.
+  #
+  # bit 7 (0x80) is a THIRD field this project found by differential scan,
+  # not documented by the ESPHome source: 0x92 in Li-ion -> 0x02 in
+  # Lead-Acid -> 0x92 back in Li-ion (register 90-135 otherwise identical
+  # across the round trip, confirming a clean toggle, not incidental drift).
+  # CONFIRMED both directions on the real LCD -- this is the battery type
+  # bit. Switching it also resets bits 0x30 (discharge control, back to
+  # Voltage) and register 99 (charge voltage, to that chemistry's default)
+  # as side effects of the LCD's own battery-type wizard, not bugs here.
   - {addr: 120, key: ac_charge_mode_raw,     type: u16, scale: 1, shift: 1, bitmask: 0x07, unit: raw}
   - {addr: 120, key: discharge_control_raw,  type: u16, scale: 1, shift: 4, bitmask: 0x03, unit: raw}
+  - {addr: 120, key: battery_type_raw,       type: u16, scale: 1, shift: 7, bitmask: 0x01, unit: raw}
 
   # --- AC Couple (LCD setting 32) ------------------------------------------
   # CONFIRMED against the real LCD, including the setting number -- neither
@@ -251,7 +261,11 @@ holding:
   # independently, empirically confirmed via real hardware tests). Included
   # anyway since a wrong read-only value costs nothing and the LCD
   # comparison will immediately show whether these addresses are real.
-  - {addr: 104, key: cand_battery_type,            type: u16, scale: 1,   unit: raw, verified: false}
+  #
+  # cand_battery_type (addr 104) was here and has been REMOVED: a real
+  # differential scan (Li-ion -> Lead-Acid -> Li-ion) proved address 104
+  # never changes at all (stayed 0 throughout). The real battery-type bit
+  # was found instead -- register 120 bit 7, see the holding entries above.
   - {addr: 108, key: cand_battery_ov_threshold,    type: u16, scale: 0.1, unit: V,   verified: false}
   - {addr: 109, key: cand_equalization_voltage,    type: u16, scale: 0.1, unit: V,   verified: false}
   - {addr: 114, key: cand_max_pv_charge_current,   type: u16, scale: 1,   unit: A,   verified: false}
@@ -296,3 +310,8 @@ discharge_control_map:
   0: voltage
   1: soc
   2: both
+# battery_type_raw (register 120 bit 7): 1 in Li-ion, 0 in Lead-Acid --
+# confirmed both directions by differential scan.
+battery_type_map:
+  0: lead_acid
+  1: lithium
