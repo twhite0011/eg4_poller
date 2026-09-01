@@ -264,6 +264,16 @@ holding:
   - {addr: 220, key: set_ac_couple_start_soc, type: u16, scale: 1, unit: pct, min: 0, max: 101, writable: true, setting: 32}
   - {addr: 221, key: set_ac_couple_end_soc,   type: u16, scale: 1, unit: pct, min: 0, max: 101, writable: true, setting: 32}
 
+  # AC Couple enable/disable. CONFIRMED both directions by differential
+  # scan of the FULL holding range (not just a narrow guess like the earlier
+  # disproven register-77 candidate): off=0x1000 -> on=0x1800 -> off=0x1000,
+  # bit 11 (0x0800) only, with the entire holding space otherwise byte-for-
+  # byte identical across the round trip (just the clock ticking). Bit 12
+  # (0x1000) is set in both states -- an unexplained neighbor, unrelated to
+  # this toggle. Read-only rather than writable: a plain 0/1 write would
+  # clobber that unknown bit 12, same reasoning as register 120 above.
+  - {addr: 179, key: ac_couple_enabled_raw, type: u16, scale: 1, shift: 11, bitmask: 0x01, unit: raw}
+
   # --- Candidates: addresses NOT yet confirmed against this LCD -----------
   # All read-only (no min/max/writable) until verified the same way every
   # other register in this file was: change it on the panel, watch this
@@ -330,3 +340,8 @@ discharge_control_map:
 battery_type_map:
   0: lead_acid
   1: lithium
+# ac_couple_enabled_raw (register 179 bit 11): 0=off, 1=on -- confirmed both
+# directions by differential scan.
+ac_couple_enabled_map:
+  0: false
+  1: true

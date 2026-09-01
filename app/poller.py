@@ -224,6 +224,7 @@ class InverterDevice:
         self.ac_charge_mode_map = {int(k): v for k, v in regmap.get("ac_charge_mode_map", {}).items()}
         self.discharge_control_map = {int(k): v for k, v in regmap.get("discharge_control_map", {}).items()}
         self.battery_type_map = {int(k): v for k, v in regmap.get("battery_type_map", {}).items()}
+        self.ac_couple_enabled_map = {int(k): v for k, v in regmap.get("ac_couple_enabled_map", {}).items()}
 
         # Catch an address defined twice in the same space. Sharing an
         # address is legitimate ONLY for packed sub-fields, which are
@@ -363,6 +364,8 @@ class InverterDevice:
         values["discharge_control"] = self.discharge_control_map.get(dc_raw) if dc_raw is not None else None
         bt_raw = values.get("battery_type_raw")
         values["battery_type"] = self.battery_type_map.get(bt_raw) if bt_raw is not None else None
+        ace_raw = values.get("ac_couple_enabled_raw")
+        values["ac_couple_enabled"] = self.ac_couple_enabled_map.get(ace_raw) if ace_raw is not None else None
 
         # Inverter clock (LCD setting 1), assembled from three packed holding
         # registers. Decoding is protocol parsing, not arithmetic, so it
