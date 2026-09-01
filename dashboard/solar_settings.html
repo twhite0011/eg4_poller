@@ -219,10 +219,12 @@ const GROUPS = [
        "Should stay below charge voltage — not cross-validated against it here. Found by differential scan (register 144)."],
     ]},
 
-  { num: 11, title: "Grid-switch cutoff voltage", sub: "Off-Grid/On-Grid Cutoff — where the inverter stops drawing on the battery and switches to utility power, if available",
+  { num: 11, title: "Grid-switch cutoff", sub: "Off-Grid/On-Grid Cutoff — where the inverter stops drawing on the battery and switches to utility power, if available. NOT the discharge cutoff below — this only switches the source to grid, it doesn't stop discharge outright. Setting 10 (discharge type, not yet exposed here) picks which field below is enforced — same two-field pattern as Setting 12",
     rows: [
-      ["set_grid_switch_cutoff_voltage","Grid-switch cutoff","V",44.0,52.0,0.1,
-       "NOT the discharge cutoff below — this only switches the source to grid, it doesn't stop discharge outright. Found by differential scan (register 100)."],
+      ["set_grid_switch_cutoff_voltage","Cutoff voltage","V",44.0,52.0,0.1,
+       "Used when Setting 10 (discharge type) = Voltage. Found by differential scan (register 100)."],
+      ["set_grid_switch_cutoff_soc","Cutoff SOC","%",15,90,1,
+       "Used when Setting 10 (discharge type) = SOC. CONFIRMED against the LCD as Setting 11's SOC field (register 125)."],
     ]},
 
   { num: 12, title: "Discharge cutoff", sub: "Battery Discharge Cutoff / End of Discharge — the absolute floor; below this the inverter stops discharging the battery entirely. Setting 10 (discharge type, not yet exposed here) picks which field below is enforced",
@@ -262,6 +264,14 @@ const GROUPS = [
       ["set_gen_stop_soc","End SOC","%",20,100,1,"Manual range 20–100%."],
     ]},
 
+  { num: 32, title: "AC couple", sub: "Only relevant with an AC-coupled PV source. CONFIRMED against the LCD, including the setting number itself.",
+    rows: [
+      ["set_ac_couple_start_soc","Start SOC","%",0,101,1,
+       "Manual allows 0–101; 99/100 is the recommended value for frequency-shift AC coupling."],
+      ["set_ac_couple_end_soc","End SOC","%",0,101,1,
+       "Manual allows 0–101; 99/100 is the recommended value for frequency-shift AC coupling."],
+    ]},
+
   { num: "cand", title: "Unverified candidates", sub: "Addresses NOT yet confirmed against this LCD -- read-only until they are. Change the matching setting on the panel and watch whether the value below tracks it; if it doesn't, the address is wrong.",
     rows: [] },
 ];
@@ -271,16 +281,10 @@ const GROUPS = [
    Tuple: [group num, key, name, unit, note]. */
 const READONLY = [
   [14, "ac_charge_mode", "AC charge based on", "",
-    "Register 120 bits 0x0E. Bit position not directly tested here, but this register's OTHER field (discharge_control below) was -- decode sourced from an independent ESPHome project targeting this same inverter."],
+    "Register 120 bits 0x0E. CONFIRMED against the LCD -- both the bit position and the label text. Decode sourced from an independent ESPHome project targeting this same inverter."],
   [12, "discharge_control", "Discharge control (Setting 10)", "",
-    "Register 120 bits 0x30 -- bit position CONFIRMED by this project's own differential scan (Voltage->SOC toggle read back as raw 2->18). This is what Setting 10 actually is. Not writable here: it shares a register with AC charge mode above, and writing one without a read-modify-write over the whole word would clobber the other."],
+    "Register 120 bits 0x30. CONFIRMED against the LCD -- both the bit position (this project's own differential scan: Voltage->SOC toggle read back as raw 2->18) and the label text. This is what Setting 10 actually is. Not writable here: it shares a register with AC charge mode above, and writing one without a read-modify-write over the whole word would clobber the other."],
 
-  ["cand", "cand_discharge_cutoff_soc_alt", "Discharge cutoff SOC (alt)", "%",
-    "UNVERIFIED (register 125). Higher confidence -- ESPHome-sourced, same project that got register 120 right. May be the SOC counterpart to Setting 11's cutoff voltage above, distinct from Cutoff SOC (Setting 12) in the Discharge cutoff card."],
-  ["cand", "cand_ac_couple_start_soc", "AC couple start SOC", "%",
-    "UNVERIFIED (register 220). Higher confidence, ESPHome-sourced. Only relevant if you have an AC-coupled PV source."],
-  ["cand", "cand_ac_couple_end_soc", "AC couple end SOC", "%",
-    "UNVERIFIED (register 221). Higher confidence, ESPHome-sourced. Only relevant if you have an AC-coupled PV source."],
   ["cand", "cand_battery_type", "Battery type (0/1/2 raw)", "",
     "UNVERIFIED (register 104). LOWER confidence -- sourced only from a register CSV this project's own hardware tests directly disproved for addresses 105 and 120. Compare carefully."],
   ["cand", "cand_battery_ov_threshold", "Battery OV threshold", "V",

@@ -214,7 +214,9 @@ holding:
   # On" (Disabled/Time/Voltage/SOC/Voltage+Time/SOC+Time); bits 0x30 (shifted
   # 4, masked to 2 bits -> codes 0-2) = "Discharge Control"
   # (Voltage/SOC/Both) -- code 1 here is exactly the "SOC" mode Setting 10's
-  # scan already confirmed. Decoded via ac_charge_mode_map/
+  # scan already confirmed. CONFIRMED against the real LCD: both the bit
+  # position (from the differential scan) and the label text (ESPHome's
+  # wording) read correctly. Decoded via ac_charge_mode_map/
   # discharge_control_map below, same mechanism as state_map for register 0.
   # No min/max/writable: reading two sub-fields of a shared register is safe;
   # WRITING one without a read-modify-write over the whole word would
@@ -222,20 +224,30 @@ holding:
   - {addr: 120, key: ac_charge_mode_raw,     type: u16, scale: 1, shift: 1, bitmask: 0x07, unit: raw}
   - {addr: 120, key: discharge_control_raw,  type: u16, scale: 1, shift: 4, bitmask: 0x03, unit: raw}
 
+  # --- Grid-switch cutoff SOC (LCD setting 11) -----------------------------
+  # CONFIRMED against the real LCD: this is Setting 11's SOC field, the
+  # counterpart to set_grid_switch_cutoff_voltage (addr 100) above -- exactly
+  # the hypothesis raised when this register was still an unverified
+  # candidate. Setting 10 (discharge type) picks which of the two is
+  # enforced, same pattern as Setting 12's voltage/SOC pair below.
+  # Bounds match set_eod_pct's (Setting 12's own SOC field) for consistency;
+  # loosen once real-world tuning shows they're too tight.
+  - {addr: 125, key: set_grid_switch_cutoff_soc, type: u16, scale: 1, unit: pct, min: 15, max: 90, writable: true, setting: 11}
+
+  # --- AC Couple (LCD setting 32) ------------------------------------------
+  # CONFIRMED against the real LCD, including the setting number -- neither
+  # this project's own testing nor the source ESPHome project had a setting
+  # number for these two before now. Bounds match the ESPHome project's own
+  # (0-101; the manual apparently allows up to 101 and recommends 99/100 for
+  # frequency-shift AC coupling).
+  - {addr: 220, key: set_ac_couple_start_soc, type: u16, scale: 1, unit: pct, min: 0, max: 101, writable: true, setting: 32}
+  - {addr: 221, key: set_ac_couple_end_soc,   type: u16, scale: 1, unit: pct, min: 0, max: 101, writable: true, setting: 32}
+
   # --- Candidates: addresses NOT yet confirmed against this LCD -----------
   # All read-only (no min/max/writable) until verified the same way every
   # other register in this file was: change it on the panel, watch this
   # project's own decode track the change. None of these should be trusted
   # for a write before that happens.
-  #
-  # Higher confidence -- sourced from the same independent ESPHome project
-  # that got register 120 exactly right above (cross-validated bit-for-bit
-  # against this project's own Setting 10 scan). 125 in particular may be
-  # the SOC counterpart to Setting 11's cutoff voltage (addr 100) -- a gap
-  # in what this project has actually found so far.
-  - {addr: 125, key: cand_discharge_cutoff_soc_alt, type: u16, scale: 1,   unit: pct, verified: false}
-  - {addr: 220, key: cand_ac_couple_start_soc,       type: u16, scale: 1,   unit: pct, verified: false}
-  - {addr: 221, key: cand_ac_couple_end_soc,         type: u16, scale: 1,   unit: pct, verified: false}
   #
   # Lower confidence -- ONLY sourced from a separate register CSV that this
   # project directly disproved elsewhere (it put a totally different

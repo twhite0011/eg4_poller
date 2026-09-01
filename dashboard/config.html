@@ -242,8 +242,15 @@ const TYPE_DEFAULTS = {
    one or the other. */
 const WRITABLE_KEYS = [
   ["set_charge_current_limit","Total charge limit (A)","number"],
+  ["set_charge_voltage","Charge voltage (V)","number"],
+  ["set_float_voltage","Float voltage (V)","number"],
   ["set_ac_charge_current","AC charge current (A)","number"],
+  ["set_grid_switch_cutoff_voltage","Grid-switch cutoff voltage (V)","number"],
+  ["set_grid_switch_cutoff_soc","Grid-switch cutoff SOC (%)","number"],
+  ["set_discharge_cutoff_voltage","Discharge cutoff voltage (V)","number"],
   ["set_eod_pct","End of discharge (%)","number"],
+  ["set_ac_couple_start_soc","AC couple start SOC (%)","number"],
+  ["set_ac_couple_end_soc","AC couple end SOC (%)","number"],
   ["set_ac_charge_start_soc","AC charge start SOC (%)","number"],
   ["set_ac_charge_stop_soc","AC charge stop SOC (%)","number"],
   ["set_ac_charge_start_1","AC charge window 1 start","time"],
