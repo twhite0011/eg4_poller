@@ -199,6 +199,9 @@ const GROUPS = [
   { num: 1, title: "Date & Time", sub: "Inverter clock. AC charge windows run on this, not on wall time.",
     clock: true, rows: [] },
 
+  { num: 3, title: "Battery type", sub: "Li-ion vs Lead-Acid. Read-only here -- see the row below for why.",
+    rows: [] },
+
   { num: 6, title: "Charge current", sub: "Ic — maximum charge current",
     rows: [
       ["set_charge_current_limit","Total charge limit","A",0,125,10,
@@ -219,15 +222,18 @@ const GROUPS = [
        "Should stay below charge voltage — not cross-validated against it here. Found by differential scan (register 144)."],
     ]},
 
-  { num: 11, title: "Discharge cutoff", sub: "Battery Discharge Cutoff / End of Discharge — the absolute floor; below this the inverter stops discharging the battery entirely. Must stay <= Setting 12's cutoff below (enforced server-side, not just here). Setting 10 (discharge type, not yet exposed here) picks which field below is enforced",
+  { num: 10, title: "Discharge type", sub: "Voltage or SOC -- picks which field is enforced on both Setting 11 and Setting 12 below. Read-only here -- see the row below for why.",
+    rows: [] },
+
+  { num: 11, title: "Discharge cutoff", sub: "Battery Discharge Cutoff / End of Discharge — the absolute floor; below this the inverter stops discharging the battery entirely. Must stay <= Setting 12's cutoff below (enforced server-side, not just here). Setting 10 above picks which field below is enforced",
     rows: [
       ["set_discharge_cutoff_voltage","Cutoff voltage","V",44.0,52.0,0.1,
-       "Used when Setting 10 (discharge type) = Voltage. Found by differential scan (register 100)."],
+       "Used when Setting 10 = Voltage. Found by differential scan (register 100)."],
       ["set_eod_pct","Cutoff SOC","%",5,95,1,
-       "Used when Setting 10 (discharge type) = SOC. CONFIRMED against the LCD as Setting 11 (\"Cutoff\", 5%) — the lower of the two thresholds, register 125."],
+       "Used when Setting 10 = SOC. CONFIRMED against the LCD as Setting 11 (\"Cutoff\", 5%) — the lower of the two thresholds, register 125."],
     ]},
 
-  { num: 12, title: "Grid charge cutoff", sub: "Off-Grid/On-Grid Cutoff — where the inverter stops drawing on the battery and switches to utility power, if available. NOT the discharge cutoff above — this only switches the source to grid, it doesn't stop discharge outright. Must stay >= Setting 11's cutoff above (enforced server-side, not just here). Setting 10 (discharge type, not yet exposed here) picks which field below is enforced — same two-field pattern as Setting 11",
+  { num: 12, title: "Grid charge cutoff", sub: "Off-Grid/On-Grid Cutoff — where the inverter stops drawing on the battery and switches to utility power, if available. NOT the discharge cutoff above — this only switches the source to grid, it doesn't stop discharge outright. Must stay >= Setting 11's cutoff above (enforced server-side, not just here). Setting 10 above picks which field below is enforced — same two-field pattern as Setting 11",
     rows: [
       ["set_grid_switch_cutoff_voltage","Cutoff voltage","V",44.0,52.0,0.1,
        "Used when Setting 10 (discharge type) = Voltage. Found by differential scan (register 169)."],
@@ -282,10 +288,10 @@ const GROUPS = [
 const READONLY = [
   [14, "ac_charge_mode", "AC charge based on", "",
     "Register 120 bits 0x0E. CONFIRMED against the LCD -- both the bit position and the label text. Decode sourced from an independent ESPHome project targeting this same inverter."],
-  [12, "discharge_control", "Discharge control (Setting 10)", "",
-    "Register 120 bits 0x30. CONFIRMED against the LCD -- both the bit position (this project's own differential scan: Voltage->SOC toggle read back as raw 2->18) and the label text. This is what Setting 10 actually is. Not writable here: it shares a register with AC charge mode above, and writing one without a read-modify-write over the whole word would clobber the other."],
-  [7, "battery_type", "Battery type", "",
-    "Register 120 bit 7. CONFIRMED both directions by differential scan: 0x92 in Li-ion -> 0x02 in Lead-Acid -> 0x92 back in Li-ion, registers 90-135 otherwise identical across the round trip. Switching it also resets discharge control to Voltage and this card's charge voltage to that chemistry's default -- side effects of the LCD's own wizard, not bugs here. Not writable: shares register 120 with the two rows above."],
+  [10, "discharge_control", "Discharge control", "",
+    "Register 120 bits 0x30. CONFIRMED against the LCD -- both the bit position (this project's own differential scan: Voltage->SOC toggle read back as raw 2->18) and the label text. This is what Setting 10 actually is. Not writable here: it shares register 120 with AC charge mode and battery type elsewhere on this page, and writing one without a read-modify-write over the whole word would clobber the others."],
+  [3, "battery_type", "Battery type", "",
+    "Register 120 bit 7. CONFIRMED both directions by differential scan: 0x92 in Li-ion -> 0x02 in Lead-Acid -> 0x92 back in Li-ion, registers 90-135 otherwise identical across the round trip. Switching it also resets discharge control to Voltage and the charge voltage setting to that chemistry's default -- side effects of the LCD's own wizard, not bugs here. Not writable: shares register 120 with AC charge mode and discharge control elsewhere on this page."],
   [7, "manual_battery_capacity_ah", "Manual capacity (register 147)", "Ah",
     "CONFIRMED by differential scan -- Lead-Acid mode's manual capacity entry (no live BMS there), typed 300 and it read back exactly 300, persisting after switching back to Li-ion. Whether this does anything while battery_type=lithium (which normally uses live BMS telemetry instead) is untested -- read-only until that's understood."],
   [7, "manual_battery_capacity_ah_alt", "Manual capacity (register 204)", "Ah",
