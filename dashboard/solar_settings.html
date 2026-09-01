@@ -286,6 +286,10 @@ const READONLY = [
     "Register 120 bits 0x30. CONFIRMED against the LCD -- both the bit position (this project's own differential scan: Voltage->SOC toggle read back as raw 2->18) and the label text. This is what Setting 10 actually is. Not writable here: it shares a register with AC charge mode above, and writing one without a read-modify-write over the whole word would clobber the other."],
   [7, "battery_type", "Battery type", "",
     "Register 120 bit 7. CONFIRMED both directions by differential scan: 0x92 in Li-ion -> 0x02 in Lead-Acid -> 0x92 back in Li-ion, registers 90-135 otherwise identical across the round trip. Switching it also resets discharge control to Voltage and this card's charge voltage to that chemistry's default -- side effects of the LCD's own wizard, not bugs here. Not writable: shares register 120 with the two rows above."],
+  [7, "manual_battery_capacity_ah", "Manual capacity (register 147)", "Ah",
+    "CONFIRMED by differential scan -- Lead-Acid mode's manual capacity entry (no live BMS there), typed 300 and it read back exactly 300, persisting after switching back to Li-ion. Whether this does anything while battery_type=lithium (which normally uses live BMS telemetry instead) is untested -- read-only until that's understood."],
+  [7, "manual_battery_capacity_ah_alt", "Manual capacity (register 204)", "Ah",
+    "Same confirmed value as register 147 above, at a different address -- why there are two is not yet understood. Read-only for the same reason."],
 
   ["cand", "cand_battery_ov_threshold", "Battery OV threshold", "V",
     "UNVERIFIED (register 108). LOWER confidence -- same CSV-only caveat as battery type above."],

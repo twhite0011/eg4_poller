@@ -240,6 +240,21 @@ holding:
   - {addr: 120, key: discharge_control_raw,  type: u16, scale: 1, shift: 4, bitmask: 0x03, unit: raw}
   - {addr: 120, key: battery_type_raw,       type: u16, scale: 1, shift: 7, bitmask: 0x01, unit: raw}
 
+  # --- Manually-entered battery capacity (LCD setting unconfirmed) --------
+  # CONFIRMED by differential scan, not a candidate guess: switching to
+  # Lead-Acid prompts for capacity (no live BMS to report it there); typed
+  # 300, both registers below read back exactly 300 (raw, no scaling) --
+  # tested twice, once against a 200->300 change and confirmed the new
+  # value persists after switching back to Li-ion (not reset/transient).
+  # Two separate addresses hold the identical value for reasons not yet
+  # understood -- possibly one general "battery capacity" and one specific
+  # to a related calculation, or simple redundancy. Whether either one does
+  # anything while battery_type=lithium (which normally uses the live
+  # bms_capacity input register instead) is untested. Read-only until that's
+  # understood -- this is exactly the situation min/max would be a guess.
+  - {addr: 147, key: manual_battery_capacity_ah,     type: u16, scale: 1, unit: Ah}
+  - {addr: 204, key: manual_battery_capacity_ah_alt, type: u16, scale: 1, unit: Ah}
+
   # --- AC Couple (LCD setting 32) ------------------------------------------
   # CONFIRMED against the real LCD, including the setting number -- neither
   # this project's own testing nor the source ESPHome project had a setting
