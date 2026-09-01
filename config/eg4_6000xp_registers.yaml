@@ -142,6 +142,15 @@ holding:
   # exists to catch.
   - {addr: 101, key: set_charge_current_limit, type: u16, scale: 1, unit: A, min: 0, max: 125, writable: true, setting: 6}
 
+  # --- Max discharge current (LCD setting 9) -------------------------------
+  # CONFIRMED both directions by differential scan: 100->90 read back as raw
+  # 100->90 at 102 (no scaling), then 90->100 back, holding registers
+  # otherwise identical across the round trip apart from the clock. Bounds
+  # match set_charge_current_limit's ceiling above (0-125 A, the inverter's
+  # own limit per that register's note) -- not independently confirmed for
+  # discharge specifically, just a reasonable starting point.
+  - {addr: 102, key: set_discharge_current_limit, type: u16, scale: 1, unit: A, min: 0, max: 125, writable: true, setting: 9}
+
   # --- Charge voltage targets (LCD settings 7, 8) ---
   # Found by differential scan, same technique as set_charge_current_limit
   # above: dump every holding register, change the value on the LCD, dump

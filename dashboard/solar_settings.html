@@ -222,6 +222,12 @@ const GROUPS = [
        "Should stay below charge voltage — not cross-validated against it here. Found by differential scan (register 144)."],
     ]},
 
+  { num: 9, title: "Max discharge current", sub: "Idis — maximum discharge current",
+    rows: [
+      ["set_discharge_current_limit","Discharge current limit","A",0,125,1,
+       "Bounds match Setting 6's charge-current ceiling, not independently confirmed for discharge. Found by differential scan (register 102)."],
+    ]},
+
   { num: 10, title: "Discharge type", sub: "Voltage or SOC -- picks which field is enforced on both Setting 11 and Setting 12 below. Read-only here -- see the row below for why.",
     rows: [] },
 
