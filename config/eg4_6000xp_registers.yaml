@@ -230,9 +230,12 @@ holding:
   # the hypothesis raised when this register was still an unverified
   # candidate. Setting 10 (discharge type) picks which of the two is
   # enforced, same pattern as Setting 12's voltage/SOC pair below.
-  # Bounds match set_eod_pct's (Setting 12's own SOC field) for consistency;
-  # loosen once real-world tuning shows they're too tight.
-  - {addr: 125, key: set_grid_switch_cutoff_soc, type: u16, scale: 1, unit: pct, min: 15, max: 90, writable: true, setting: 11}
+  # min was initially set to 15 (matching set_eod_pct) but the real live
+  # value read back as 10 -- below that -- so the bound was wrong, not the
+  # value. Lowered to 5 (matching set_ac_charge_start_soc's floor) so the
+  # actual current setting isn't outside the range this project would
+  # accept writing back.
+  - {addr: 125, key: set_grid_switch_cutoff_soc, type: u16, scale: 1, unit: pct, min: 5, max: 95, writable: true, setting: 11}
 
   # --- AC Couple (LCD setting 32) ------------------------------------------
   # CONFIRMED against the real LCD, including the setting number -- neither
