@@ -261,17 +261,48 @@ const GROUPS = [
       ["set_gen_start_soc","Start SOC","%",1,90,1,"Manual range 1–90%."],
       ["set_gen_stop_soc","End SOC","%",20,100,1,"Manual range 20–100%."],
     ]},
+
+  { num: "cand", title: "Unverified candidates", sub: "Addresses NOT yet confirmed against this LCD -- read-only until they are. Change the matching setting on the panel and watch whether the value below tracks it; if it doesn't, the address is wrong.",
+    rows: [] },
 ];
 
 /* Read from the inverter but not writable here. Shown so the page reflects
-   the whole mapped picture rather than quietly omitting things. */
-const READONLY = [];
+   the whole mapped picture rather than quietly omitting things.
+   Tuple: [group num, key, name, unit, note]. */
+const READONLY = [
+  [14, "ac_charge_mode", "AC charge based on", "",
+    "Register 120 bits 0x0E. Bit position not directly tested here, but this register's OTHER field (discharge_control below) was -- decode sourced from an independent ESPHome project targeting this same inverter."],
+  [12, "discharge_control", "Discharge control (Setting 10)", "",
+    "Register 120 bits 0x30 -- bit position CONFIRMED by this project's own differential scan (Voltage->SOC toggle read back as raw 2->18). This is what Setting 10 actually is. Not writable here: it shares a register with AC charge mode above, and writing one without a read-modify-write over the whole word would clobber the other."],
+
+  ["cand", "cand_discharge_cutoff_soc_alt", "Discharge cutoff SOC (alt)", "%",
+    "UNVERIFIED (register 125). Higher confidence -- ESPHome-sourced, same project that got register 120 right. May be the SOC counterpart to Setting 11's cutoff voltage above, distinct from Cutoff SOC (Setting 12) in the Discharge cutoff card."],
+  ["cand", "cand_ac_couple_start_soc", "AC couple start SOC", "%",
+    "UNVERIFIED (register 220). Higher confidence, ESPHome-sourced. Only relevant if you have an AC-coupled PV source."],
+  ["cand", "cand_ac_couple_end_soc", "AC couple end SOC", "%",
+    "UNVERIFIED (register 221). Higher confidence, ESPHome-sourced. Only relevant if you have an AC-coupled PV source."],
+  ["cand", "cand_ac_couple_enabled", "AC couple enabled (0/1)", "",
+    "UNVERIFIED (input register 77, bit 1). Higher confidence, ESPHome-sourced. Only relevant if you have an AC-coupled PV source."],
+  ["cand", "cand_battery_type", "Battery type (0/1/2 raw)", "",
+    "UNVERIFIED (register 104). LOWER confidence -- sourced only from a register CSV this project's own hardware tests directly disproved for addresses 105 and 120. Compare carefully."],
+  ["cand", "cand_battery_ov_threshold", "Battery OV threshold", "V",
+    "UNVERIFIED (register 108). LOWER confidence -- same CSV-only caveat as battery type above."],
+  ["cand", "cand_equalization_voltage", "Equalization voltage", "V",
+    "UNVERIFIED (register 109). LOWER confidence -- same caveat. LiFePO4 rarely uses equalization, so this may not be meaningful even if the address is right."],
+  ["cand", "cand_max_pv_charge_current", "Max PV-only charge current", "A",
+    "UNVERIFIED (register 114). LOWER confidence -- same caveat."],
+  ["cand", "cand_ac_grid_charge_enabled", "AC/grid charge enabled (0/1)", "",
+    "UNVERIFIED (register 119). LOWER confidence -- same caveat."],
+];
 
 /* key -> unit ("A", "V", "%", or "" for time settings, which carry no unit
    string in their row tuple), flattened once from GROUPS so paint() doesn't
-   need to search every group on every poll. */
-const UNIT_OF = Object.fromEntries(
-  GROUPS.flatMap(g => g.rows).map(([key,,unit]) => [key, unit || ""]));
+   need to search every group on every poll. READONLY's tuple shape differs
+   (unit is index 3, not index 2), so it's merged in separately. */
+const UNIT_OF = Object.fromEntries([
+  ...GROUPS.flatMap(g => g.rows).map(([key,,unit]) => [key, unit || ""]),
+  ...READONLY.map(([,key,,unit]) => [key, unit || ""]),
+]);
 
 const $ = id => document.getElementById(id);
 let armed = false, state = {}, client = null, pending = null;
@@ -406,7 +437,7 @@ function build(){
   host.innerHTML = GROUPS.map(g => {
     const ro = READONLY.filter(r => r[0] === g.num).map(([,k,n,u,note]) =>
       `<div class="setting ro"><div><div class="name">${n}</div>
-        <div class="meta">${k}${note?" · "+note:""}</div></div>
+        <div class="meta">${k}${u?" · "+u:""}${note?" · "+note:""}</div></div>
        <span class="cur" id="cur_${k}">—</span><span class="st"></span>
        <input disabled></div>`).join("");
     const clock = g.clock ? `
@@ -538,7 +569,11 @@ function paint(){
   GROUPS.forEach(g => refreshGroup(g.num));
   for (const [,k] of READONLY){
     const c = $("cur_"+k);
-    if (c && state[k] !== undefined) c.textContent = state[k];
+    if (!c) continue;
+    const v = state[k];
+    if (v === undefined || v === null){ c.textContent = "—"; continue; }
+    const unit = UNIT_OF[k];
+    c.textContent = unit ? `${v} ${unit}` : v;
   }
   const ct = $("cur_inverter_time");
   if (ct) ct.textContent = state.inverter_time || "—";

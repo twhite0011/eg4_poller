@@ -86,6 +86,17 @@ input:
   # register spaces, so not a conflict -- but flagged as UNVERIFIED.
   - {addr: 153, key: ac_couple_power,     type: u16, scale: 1,    unit: W, verified: false}
 
+  # --- Candidate: AC couple enabled (UNVERIFIED) ---
+  # Sourced from an independent ESPHome project targeting this same
+  # inverter (binary_sensor, register 77 bit 0x02) -- that project's other
+  # addresses cross-validated very well against this project's own
+  # differential-scan findings (see holding register 120 below), which is
+  # why this one is trusted enough to add for a look, unlike the low-
+  # confidence candidates sourced only from a register CSV that was
+  # directly contradicted by this project's own hardware tests. Still not
+  # independently confirmed against THIS LCD -- compare before trusting.
+  - {addr: 77,  key: cand_ac_couple_enabled, type: u16, scale: 1, shift: 1, bitmask: 0x01, unit: raw, verified: false}
+
 # Holding registers.
 #
 # `setting:` is the number on the inverter's own LCD menu (manual v1.1.7,
@@ -212,6 +223,33 @@ holding:
   # clobber the other, which is exactly why this stays read-only for now.
   - {addr: 120, key: ac_charge_mode_raw,     type: u16, scale: 1, shift: 1, bitmask: 0x07, unit: raw}
   - {addr: 120, key: discharge_control_raw,  type: u16, scale: 1, shift: 4, bitmask: 0x03, unit: raw}
+
+  # --- Candidates: addresses NOT yet confirmed against this LCD -----------
+  # All read-only (no min/max/writable) until verified the same way every
+  # other register in this file was: change it on the panel, watch this
+  # project's own decode track the change. None of these should be trusted
+  # for a write before that happens.
+  #
+  # Higher confidence -- sourced from the same independent ESPHome project
+  # that got register 120 exactly right above (cross-validated bit-for-bit
+  # against this project's own Setting 10 scan). 125 in particular may be
+  # the SOC counterpart to Setting 11's cutoff voltage (addr 100) -- a gap
+  # in what this project has actually found so far.
+  - {addr: 125, key: cand_discharge_cutoff_soc_alt, type: u16, scale: 1,   unit: pct, verified: false}
+  - {addr: 220, key: cand_ac_couple_start_soc,       type: u16, scale: 1,   unit: pct, verified: false}
+  - {addr: 221, key: cand_ac_couple_end_soc,         type: u16, scale: 1,   unit: pct, verified: false}
+  #
+  # Lower confidence -- ONLY sourced from a separate register CSV that this
+  # project directly disproved elsewhere (it put a totally different
+  # meaning on both address 105 and address 120, which this project
+  # independently, empirically confirmed via real hardware tests). Included
+  # anyway since a wrong read-only value costs nothing and the LCD
+  # comparison will immediately show whether these addresses are real.
+  - {addr: 104, key: cand_battery_type,            type: u16, scale: 1,   unit: raw, verified: false}
+  - {addr: 108, key: cand_battery_ov_threshold,    type: u16, scale: 0.1, unit: V,   verified: false}
+  - {addr: 109, key: cand_equalization_voltage,    type: u16, scale: 0.1, unit: V,   verified: false}
+  - {addr: 114, key: cand_max_pv_charge_current,   type: u16, scale: 1,   unit: A,   verified: false}
+  - {addr: 119, key: cand_ac_grid_charge_enabled,  type: u16, scale: 1,   unit: raw, verified: false}
 
 # Working-mode decode for register 0. The six original entries are our own
 # field-confirmed labels -- kept as-is rather than renamed to match the
