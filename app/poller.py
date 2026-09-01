@@ -184,15 +184,16 @@ def encode(reg: Reg, value) -> int:
     return raw
 
 
-# Setting 11's SOC threshold must not exceed Setting 12's -- confirmed
-# against this exact unit's real LCD: Setting 11 ("Cutoff") reads 5%,
-# Setting 12 ("EOD") reads 10%. The grid-switch threshold (11) fires at a
-# higher remaining charge than the absolute floor (12), so 11 <= 12 always.
+# Setting 11 (discharge cutoff, the absolute floor) must not exceed
+# Setting 12 (grid charge cutoff) -- confirmed against this exact unit's
+# real LCD: Setting 11 ("Cutoff") reads 5%, Setting 12 ("EOD") reads 10%.
+# You switch to grid power (12) at a higher remaining charge than the point
+# where discharge stops altogether (11), so 11 <= 12 always.
 # Each pair is (lower, higher); write_holding() enforces it in both
 # directions from this one list. Checked in the write path, not just
 # suggested in the UI, since the register map/write path is this project's
 # actual safety boundary (see write_holding()'s own docstring).
-_SOC_ORDER_PAIRS = [("set_grid_switch_cutoff_soc", "set_eod_pct")]
+_SOC_ORDER_PAIRS = [("set_eod_pct", "set_grid_switch_cutoff_soc")]
 
 
 # ----------------------------------------------------------------------------

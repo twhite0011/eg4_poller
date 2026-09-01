@@ -219,20 +219,20 @@ const GROUPS = [
        "Should stay below charge voltage — not cross-validated against it here. Found by differential scan (register 144)."],
     ]},
 
-  { num: 11, title: "Grid-switch cutoff", sub: "Off-Grid/On-Grid Cutoff — where the inverter stops drawing on the battery and switches to utility power, if available. NOT the discharge cutoff below — this only switches the source to grid, it doesn't stop discharge outright. Setting 10 (discharge type, not yet exposed here) picks which field below is enforced — same two-field pattern as Setting 12",
-    rows: [
-      ["set_grid_switch_cutoff_voltage","Cutoff voltage","V",44.0,52.0,0.1,
-       "Used when Setting 10 (discharge type) = Voltage. Found by differential scan (register 100)."],
-      ["set_grid_switch_cutoff_soc","Cutoff SOC","%",5,95,1,
-       "Used when Setting 10 (discharge type) = SOC. CONFIRMED against the LCD as Setting 11's SOC field (register 125)."],
-    ]},
-
-  { num: 12, title: "Discharge cutoff", sub: "Battery Discharge Cutoff / End of Discharge — the absolute floor; below this the inverter stops discharging the battery entirely. Setting 10 (discharge type, not yet exposed here) picks which field below is enforced",
+  { num: 11, title: "Discharge cutoff", sub: "Battery Discharge Cutoff / End of Discharge — the absolute floor; below this the inverter stops discharging the battery entirely. Must stay <= Setting 12's cutoff below (enforced server-side, not just here). Setting 10 (discharge type, not yet exposed here) picks which field below is enforced",
     rows: [
       ["set_discharge_cutoff_voltage","Cutoff voltage","V",44.0,52.0,0.1,
+       "Used when Setting 10 (discharge type) = Voltage. Found by differential scan (register 100)."],
+      ["set_eod_pct","Cutoff SOC","%",5,95,1,
+       "Used when Setting 10 (discharge type) = SOC. CONFIRMED against the LCD as Setting 11 (\"Cutoff\", 5%) — the lower of the two thresholds, register 125."],
+    ]},
+
+  { num: 12, title: "Grid charge cutoff", sub: "Off-Grid/On-Grid Cutoff — where the inverter stops drawing on the battery and switches to utility power, if available. NOT the discharge cutoff above — this only switches the source to grid, it doesn't stop discharge outright. Must stay >= Setting 11's cutoff above (enforced server-side, not just here). Setting 10 (discharge type, not yet exposed here) picks which field below is enforced — same two-field pattern as Setting 11",
+    rows: [
+      ["set_grid_switch_cutoff_voltage","Cutoff voltage","V",44.0,52.0,0.1,
        "Used when Setting 10 (discharge type) = Voltage. Found by differential scan (register 169)."],
-      ["set_eod_pct","Cutoff SOC","%",15,90,1,
-       "Used when Setting 10 (discharge type) = SOC. Floored at 15, not the inverter's own 10 — sourced from the Cubix, the comms master."],
+      ["set_grid_switch_cutoff_soc","Cutoff SOC","%",5,95,1,
+       "Used when Setting 10 (discharge type) = SOC. CONFIRMED against the LCD as Setting 12 (\"EOD\", 10%) — the higher of the two thresholds, register 105."],
     ]},
 
   { num: 14, title: "AC charge", sub: "Grid charging: SOC thresholds and up to three time windows",

@@ -154,29 +154,35 @@ holding:
   - {addr: 99,  key: set_charge_voltage,           type: u16, scale: 0.1, unit: V, min: 48.0, max: 58.4, writable: true, setting: 7}
   - {addr: 144, key: set_float_voltage,             type: u16, scale: 0.1, unit: V, min: 48.0, max: 56.0, writable: true, setting: 8}
 
-  # --- Grid-switch cutoff voltage (LCD setting 11, "Off-Grid/On-Grid Cutoff") ---
-  # NOT the discharge cutoff below -- this is the threshold where the
-  # inverter stops drawing on the battery and switches to the utility grid
-  # (if available), rather than the absolute floor that stops discharge
-  # outright. Confirmed on the panel by two separate differential scans
-  # (46.0->47.0 V as raw 460->470, then 47.0->47.5 V as raw 470->475, both
-  # x0.1 at 100).
-  - {addr: 100, key: set_grid_switch_cutoff_voltage, type: u16, scale: 0.1, unit: V, min: 44.0, max: 52.0, writable: true, setting: 11}
+  # --- Discharge cutoff (LCD setting 11) -----------------------------------
+  # The absolute floor -- below this the inverter stops discharging the
+  # battery entirely, to protect it from deep depletion. CORRECTED: an
+  # earlier pass had this backwards (called it "grid-switch cutoff" and put
+  # it under Setting 12) -- confirmed against the real LCD directly: Setting
+  # 11 is labeled "Cutoff" and reads 5%, the lower of the two thresholds,
+  # which is what the absolute floor should be. Addresses unchanged, only
+  # the concept/key names swapped with Setting 12 below to match reality.
+  # Voltage confirmed by differential scan (46.0->47.0 V as raw 460->470,
+  # then 47.0->47.5 V as raw 470->475, both x0.1 at 100).
+  - {addr: 100, key: set_discharge_cutoff_voltage, type: u16, scale: 0.1, unit: V, min: 44.0, max: 52.0, writable: true, setting: 11}
+  - {addr: 125, key: set_eod_pct, type: u16, scale: 1, unit: pct, min: 5, max: 95, writable: true, setting: 11}
 
-  # --- Discharge cutoff (LCD setting 12, "Battery Discharge Cutoff / End of
-  # Discharge") ---
-  # The absolute lower limit -- below this the inverter stops discharging
-  # the battery entirely, to protect it from deep depletion. ONE LCD page
-  # with two fields; Setting 10 (discharge type, register 120 bit 4 -- a
-  # shared bitmask, not yet exposed here) picks which of these two actually
-  # gets enforced: Voltage uses set_discharge_cutoff_voltage, SOC uses
-  # set_eod_pct. Found by differential scan: 50.0->50.5 V read back as raw
-  # 500->505 (x0.1) at 169.
-  - {addr: 169, key: set_discharge_cutoff_voltage,  type: u16, scale: 0.1, unit: V, min: 44.0, max: 52.0, writable: true, setting: 12}
-  # End-of-discharge floor. The lower bound is 15, not the inverter's own 10:
-  # at 15% of a 200 Ah bank there is still ~1.5 kWh of reserve, and a typo
-  # that sets 1 instead of 10 must not be reachable.
-  - {addr: 105, key: set_eod_pct,              type: u16, scale: 1, unit: pct, min: 15, max: 90, writable: true, setting: 12}
+  # --- Grid charge cutoff (LCD setting 12) ---------------------------------
+  # Off-Grid/On-Grid Cutoff -- where the inverter stops drawing on the
+  # battery and switches to utility power, if available. NOT the discharge
+  # cutoff above -- this only switches the source to grid, it doesn't stop
+  # discharge outright. Must be >= the discharge cutoff above (confirmed on
+  # the real LCD: Setting 12 "EOD" reads 10%, higher than Setting 11's 5% --
+  # you switch to grid at a higher remaining charge than the point where
+  # discharge stops altogether). Enforced in code, not just documented here
+  # -- see _SOC_ORDER_PAIRS in app/poller.py.
+  # ONE LCD page with two fields; Setting 10 (discharge type, register 120
+  # bit 4 -- a shared bitmask, not yet exposed here) picks which of these
+  # two actually gets enforced: Voltage uses set_grid_switch_cutoff_voltage,
+  # SOC uses set_grid_switch_cutoff_soc. Voltage confirmed by differential
+  # scan (50.0->50.5 V read back as raw 500->505, x0.1, at 169).
+  - {addr: 169, key: set_grid_switch_cutoff_voltage, type: u16, scale: 0.1, unit: V, min: 44.0, max: 52.0, writable: true, setting: 12}
+  - {addr: 105, key: set_grid_switch_cutoff_soc,     type: u16, scale: 1,   unit: pct, min: 5, max: 95, writable: true, setting: 12}
   - {addr: 160, key: set_ac_charge_start_soc,  type: u16, scale: 1, unit: pct, min: 5,  max: 95, writable: true, setting: 14}
   - {addr: 161, key: set_ac_charge_stop_soc,   type: u16, scale: 1, unit: pct, min: 20, max: 100, writable: true, setting: 14}
   # 125 A is the inverter's ceiling. The BMS also caps this over CAN, so a
@@ -223,19 +229,6 @@ holding:
   # clobber the other, which is exactly why this stays read-only for now.
   - {addr: 120, key: ac_charge_mode_raw,     type: u16, scale: 1, shift: 1, bitmask: 0x07, unit: raw}
   - {addr: 120, key: discharge_control_raw,  type: u16, scale: 1, shift: 4, bitmask: 0x03, unit: raw}
-
-  # --- Grid-switch cutoff SOC (LCD setting 11) -----------------------------
-  # CONFIRMED against the real LCD: this is Setting 11's SOC field, the
-  # counterpart to set_grid_switch_cutoff_voltage (addr 100) above -- exactly
-  # the hypothesis raised when this register was still an unverified
-  # candidate. Setting 10 (discharge type) picks which of the two is
-  # enforced, same pattern as Setting 12's voltage/SOC pair below.
-  # min was initially set to 15 (matching set_eod_pct) but the real live
-  # value read back as 10 -- below that -- so the bound was wrong, not the
-  # value. Lowered to 5 (matching set_ac_charge_start_soc's floor) so the
-  # actual current setting isn't outside the range this project would
-  # accept writing back.
-  - {addr: 125, key: set_grid_switch_cutoff_soc, type: u16, scale: 1, unit: pct, min: 5, max: 95, writable: true, setting: 11}
 
   # --- AC Couple (LCD setting 32) ------------------------------------------
   # CONFIRMED against the real LCD, including the setting number -- neither
